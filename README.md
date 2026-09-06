@@ -1,124 +1,196 @@
 # Vibe Manager AI 🚀
 
-Plataforma colaborativa completa para la propuesta, validación humana asistida y ejecución automatizada de prompts de código mediante **Google Gemini**, sandboxing en contenedores **Docker** y creación automática de **Pull Requests en GitHub**.
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Next.js-15-black.svg?logo=next.js&logoColor=white)](https://nextjs.org)
+[![React](https://img.shields.io/badge/React-19-61DAFB.svg?logo=react&logoColor=black)](https://react.dev)
+[![Docker](https://img.shields.io/badge/Docker-Sandboxed-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com)
+[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-2.5%20Flash-4285F4.svg?logo=google&logoColor=white)](https://ai.google.dev/)
+[![GitHub API](https://img.shields.io/badge/GitHub-PR%20Automation-181717.svg?logo=github&logoColor=white)](https://docs.github.com/rest)
+
+**Vibe Manager AI** is a collaborative software development platform where registered users propose feature modifications and bug fixes using natural language prompts. Every prompt undergoes human-in-the-loop review by qualified **Validators** before being autonomously executed inside an **isolated Docker sandbox**. The AI agent (powered by **Google Gemini**) alters the codebase, formulates a semantic commit, and automatically opens a Pull Request on GitHub.
 
 ---
 
-## 🌟 Características Principales
+## 📑 Complete Documentation Index
 
-1. **Portal de Usuarios Registrados**:
-   - Selector dinámico de proyectos web objetivo.
-   - Editor de prompts para proponer cambios y mejoras en el código.
-   - Capacidad de mandar múltiples prompts secuenciales.
-   - Historial de prompts con estado en tiempo real (En Revisión, Aprobado, Ejecutando en Docker, PR Creado en GitHub, Rechazado).
-   - Enlace directo a los Pull Requests generados en GitHub y visor de logs de ejecución.
-   - Chat en tiempo real con el Administrador.
-
-2. **Mesa de Validación (Rol Validador)**:
-   - Panel de control con las solicitudes pendientes.
-   - Capacidad de **editar y ajustar las instrucciones del prompt** antes de aprobarlo para guiar a la IA.
-   - **Aceptar**: Envía el prompt a la cola de ejecución automatizada en Docker.
-   - **Rechazar**: Permite registrar el motivo del rechazo para que el usuario lo revise.
-
-3. **Ejecución Aislada en Contenedores Docker (Sandbox Worker)**:
-   - Los cambios solicitados se ejecutan dentro de un contenedor Docker efímero para aislar el entorno anfitrión.
-   - Clona el repositorio destino con el token de GitHub (PAT).
-   - Crea una rama independiente (`vibe/task-{id}-{hash}`).
-   - Google Gemini analiza los archivos del proyecto y genera las modificaciones exactas de código.
-   - Aplica los parches, genera un commit descriptivo y hace push a GitHub.
-   - Abre automáticamente el **Pull Request** en GitHub mediante la API REST y guarda el enlace y los logs en la base de datos.
-
-4. **Consola de Administración (Rol Administrador)**:
-   - **Gestión de Usuarios**: Banear usuarios, readmitirlos y otorgar/revocar el rol de **Validador**.
-   - **Generador de Invitaciones**: Crea códigos de invitación (`VIBE-XXXX`) y enlaces de registro con botones directos para compartir en **WhatsApp** (`https://wa.me/?text=...`) o por **Email** (`mailto:...`).
-   - **Gestión de Proyectos**: Dar de alta repositorios de GitHub con su rama base y Personal Access Token (PAT).
-   - **Bandeja de Chat**: Chat en tiempo real por WebSockets con cualquier usuario de la plataforma.
+- 📘 [**User Requirements Specification (URS)**](USER_REQUIREMENTS.md): Formal specification of user personas, functional requirements (FR-01 to FR-12), non-functional requirements, and Gherkin acceptance criteria.
+- 🏛️ [**System Architecture & Design**](docs/ARCHITECTURE.md): Detailed multi-tier diagram, ephemeral Docker volume sandboxing, prompt synthesis pipeline, and database relationships.
+- 🔌 [**REST API & WebSocket Reference**](docs/API_REFERENCE.md): Exhaustive endpoint directory, request/response schemas, error definitions, and real-time chat protocol.
 
 ---
 
-## 🏗️ Arquitectura del Proyecto
+## 🌟 Key Capabilities
 
+1. **User Prompt Studio (`/dashboard`)**:
+   - Dynamic project selector listing configured GitHub repositories.
+   - Rich prompt authoring interface supporting multiple consecutive requests.
+   - Real-time task tracking across states (`PENDING`, `APPROVED`, `RUNNING`, `COMPLETED`, `REJECTED`, `FAILED`).
+   - Direct links to created GitHub Pull Requests and execution log viewers.
+
+2. **Validator Review Desk (`/validator`)**:
+   - Filterable workbench for reviewing pending community proposals.
+   - **Inline prompt editor**: Refine, augment, or correct user instructions before dispatching to the AI.
+   - **Accept & Enqueue**: Dispatches tasks immediately to the asynchronous Docker queue worker.
+   - **Reject**: Mandates an explanation to inform the submitter of rejection rationale.
+
+3. **Ephemeral Docker Sandbox Runner (`/runner`)**:
+   - **Blast Radius Limitation**: All Git clones, AI executions, and file modifications occur inside an isolated Docker container (`vibe-runner:latest`).
+   - Limits: 2GB memory cap, 300s timeout, isolated volume mounts, non-root execution.
+   - Autonomous pipeline:
+     1. Shallow clones the target repository branch.
+     2. Analyzes repository tree and system rules.
+     3. Queries **Google Gemini** for deterministic file changes and commit metadata.
+     4. Stages and commits changes on branch `vibe/task-{id}-{hash}`.
+     5. Pushes branch and opens a Pull Request via GitHub REST API.
+
+4. **Administrator Console (`/admin`)**:
+   - User governance: Ban, readmit, and grant/revoke the **Validator** role.
+   - **Invitation Engine**: Generates secure codes (`VIBE-XXXX`) and token links with one-click sharing for **WhatsApp** (`https://wa.me/?text=...`) and **Email** (`mailto:...`).
+   - Project repository manager: Add/edit GitHub repos, default branches, and Personal Access Tokens (PAT).
+   - Metrics dashboard: Live counters for users, pending prompts, running containers, and opened PRs.
+
+5. **Integrated Real-Time Chat (`/chat`)**:
+   - Direct, bi-directional communication between users and the Administrator.
+   - Backed by low-latency **WebSockets** with automatic REST polling fallback.
+
+---
+
+## 🏗️ Architecture Overview
+
+```mermaid
+flowchart TD
+    subgraph Users & Teams
+        U[Registered User] -->|1. Propose Prompt| DB[(Database)]
+        U <-->|Direct Support| ADM[Administrator]
+    end
+
+    subgraph Human-in-the-Loop Validation
+        VAL[Validator] -->|2. Review & Refine Prompt| DB
+        VAL -->|3. Approve Task| Q[Async Background Queue]
+    end
+
+    subgraph Docker Sandboxed Execution
+        Q -->|4. Launch Container| DOCKER[vibe-runner Container]
+        DOCKER -->|Clone Repository| GH[(GitHub Repo)]
+        DOCKER -->|Plan & Modify Code| GEMINI[Google Gemini AI]
+        DOCKER -->|Push Branch & Open PR| GH
+        DOCKER -->|5. Store Logs & PR URL| DB
+    end
+
+    subgraph Administrative Governance
+        ADM -->|Ban / Unban / Promote| USERS[User Management]
+        ADM -->|WhatsApp / Email Invites| INV[Invitation System]
+        ADM -->|Add Repos & Tokens| REPOS[Project Management]
+    end
 ```
-vibe-manager-ai/
-├── backend/               # API REST & WebSockets (FastAPI + Python 3.12 + SQLAlchemy async)
-│   ├── app/
-│   │   ├── models/        # User, Project, PromptTask, Invitation, ChatMessage
-│   │   ├── routers/       # auth, admin, projects, prompts, validation, chat
-│   │   ├── services/      # docker_runner, ai_gemini, github_service, queue_worker
-│   │   └── main.py
-│   ├── tests/             # Tests automatizados end-to-end con pytest
-│   └── requirements.txt
-├── runner/                # Sandbox de ejecución en Docker
-│   ├── Dockerfile         # Imagen aislada con Git y Python
-│   └── run_task.py        # Script que ejecuta Gemini, git commit, push y PR
-├── frontend/              # Aplicación Web (Next.js 15 + React 19 + Tailwind CSS)
-│   └── src/app/
-│       ├── dashboard/     # Portal del usuario para redactar prompts y ver PRs
-│       ├── validator/     # Mesa de validación y edición de prompts
-│       ├── admin/         # Consola de administración y usuarios
-│       ├── chat/          # Chat en tiempo real usuario <-> admin
-│       ├── login/
-│       └── register/      # Registro con código o enlace de invitación
-└── docker-compose.yml     # Orquestación de toda la plataforma
-```
 
 ---
 
-## 🚀 Puesta en Marcha
+## 🚀 Quick Start (Docker Compose)
 
-### Opción 1: Con Docker Compose (Recomendada)
+The easiest way to spin up the complete platform (Backend, Frontend, and Runner Sandbox) is using Docker Compose:
 
-1. Clona o abre la carpeta del proyecto:
-   ```bash
-   cd vibe-manager-ai
-   ```
-
-2. Configura tu clave de Gemini (opcional pero recomendada) en `.env`:
-   ```env
-   GEMINI_API_KEY=tu_clave_de_gemini
-   ```
-
-3. Levanta todos los servicios con un solo comando:
-   ```bash
-   docker-compose up --build
-   ```
-
-4. Accede a las aplicaciones:
-   - **Frontend**: [http://localhost:3000](http://localhost:3000)
-   - **Backend API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
-
----
-
-### Opción 2: Ejecución Local en Modo Desarrollo
-
-#### 1. Backend (FastAPI):
 ```bash
+# 1. Clone the repository
+git clone https://github.com/vibe-demo/vibe-manager-ai.git
+cd vibe-manager-ai
+
+# 2. Configure environment variables (optional for local mock mode)
+cp .env.example .env
+# Edit .env and supply your GEMINI_API_KEY if desired
+
+# 3. Launch the complete stack
+docker-compose up --build
+```
+
+Access the applications:
+- **Frontend Web UI:** [http://localhost:3000](http://localhost:3000)
+- **FastAPI Interactive Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+
+---
+
+## 💻 Local Development Setup
+
+### 1. Backend (FastAPI + Python 3.12)
+```powershell
 cd backend
 python -m venv .venv
-# En Windows:
-.\.venv\Scripts\activate
-# En Linux/Mac:
-source .venv/bin/activate
-
+.\.venv\Scripts\activate      # On Linux/Mac: source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-#### 2. Frontend (Next.js):
-```bash
+### 2. Frontend (Next.js 15 + React 19)
+```powershell
 cd frontend
-npm install
-npm run dev
+npm.cmd install              # On Linux/Mac: npm install
+npm.cmd run dev              # On Linux/Mac: npm run dev
+```
+
+Visit [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## 🔑 Default Initial Credentials
+
+When launched for the first time, the database automatically provisions the default Administrator account and a welcome invitation code:
+
+| Entity | Value | Notes |
+| :--- | :--- | :--- |
+| **Admin Email** | `admin@vibemanager.ai` | Full platform access |
+| **Admin Password** | `Admin1234!` | Configurable via `DEFAULT_ADMIN_PASSWORD` |
+| **Welcome Invite Code** | `VIBE-WELCOME` | For manual code entry |
+| **Direct Invite Link** | `http://localhost:3000/register?invite=welcome-token-2026` | Instant registration link |
+
+---
+
+## ⚙️ Environment Variables Reference
+
+Create a `.env` file in the project root:
+
+```env
+# Security & Session
+SECRET_KEY=vibe-secret-super-key-2026-production
+ACCESS_TOKEN_EXPIRE_MINUTES=10080
+
+# Database Connection (SQLite local, PostgreSQL for production)
+DATABASE_URL=sqlite+aiosqlite:///./vibe_manager.db
+
+# Default Seeded Admin
+DEFAULT_ADMIN_EMAIL=admin@vibemanager.ai
+DEFAULT_ADMIN_PASSWORD=Admin1234!
+
+# Google Gemini AI
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.5-flash
+
+# Docker Sandbox Runner
+DOCKER_RUNNER_IMAGE=vibe-runner:latest
+DOCKER_TIMEOUT_SECONDS=300
+
+# Frontend URL
+FRONTEND_URL=http://localhost:3000
 ```
 
 ---
 
-## 🔑 Credenciales por Defecto
+## 🧪 Automated Testing
 
-Al inicializar el sistema por primera vez, se crea automáticamente un usuario administrador y un código de invitación inicial:
+### Backend Integration Tests (`pytest`):
+```powershell
+cd backend
+.\.venv\Scripts\python -m pytest tests -v
+```
+*Covers end-to-end user registration, invitation validation, validator promotion, prompt drafting, validator inline editing, task approval, queue dispatch, chat messaging, and account banning.*
 
-- **Usuario Administrador**:
-  - **Email:** `admin@vibemanager.ai`
-  - **Contraseña:** `Admin1234!`
-- **Código de Invitación Inicial para nuevos usuarios**:
-  - `VIBE-WELCOME` (o enlace `/register?invite=welcome-token-2026`)
+### Frontend Production Build (`next build`):
+```powershell
+cd frontend
+npm.cmd run build
+```
+*Validates that all 10 Next.js routes compile statically with 0 TypeScript or linting errors.*
+
+---
+
+## 📄 License
+This project is licensed under the MIT License.
