@@ -86,26 +86,45 @@ flowchart TD
 
 ---
 
-## 🚀 Quick Start (Docker Compose)
+## 🚀 Quick Start: Unified Stack Management
 
-The easiest way to spin up the complete platform (Backend, Frontend, and Runner Sandbox) is using Docker Compose:
+The platform is organized into a single managed **Docker Compose Stack** with a built-in reverse proxy gateway (Nginx), unified networking (`vibe_stack_network`), persistent volume storage (`vibe_db_data`), and one-click management scripts.
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/vibe-demo/vibe-manager-ai.git
-cd vibe-manager-ai
+### Launching the Stack
 
-# 2. Configure environment variables (optional for local mock mode)
-cp .env.example .env
-# Edit .env and supply your GEMINI_API_KEY if desired
-
-# 3. Launch the complete stack
-docker-compose up --build
+**Using the Stack Manager Script (Windows):**
+```powershell
+.\stack up           # Or: .\stack.bat up / .\stack.ps1 up
 ```
 
-Access the applications:
-- **Frontend Web UI:** [http://localhost:3000](http://localhost:3000)
-- **FastAPI Interactive Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+**Using Standard Docker Compose:**
+```powershell
+docker-compose up -d --build
+```
+
+### Stack Management Commands
+
+| Command | Action |
+| :--- | :--- |
+| `.\stack up` | Builds and launches all stack containers in background |
+| `.\stack down` | Stops and tears down the stack cleanly |
+| `.\stack status` | Shows container status, healthcheck states, and mapped ports |
+| `.\stack logs` | Streams live logs from all containers (or `.\stack logs backend`) |
+| `.\stack restart` | Restarts all active services |
+| `.\stack reset` | Stops the stack and wipes persistent database volumes |
+
+---
+
+## 🌐 Unified Single-Port Entrypoint
+
+Thanks to the integrated **Gateway (Reverse Proxy)** on port `80`, you can access everything through a single clean URL without worrying about separate ports or CORS:
+
+| Service | Unified URL (Port 80) | Direct Fallback URL |
+| :--- | :--- | :--- |
+| **Web Interface (Next.js)** | [http://localhost](http://localhost) | [http://localhost:3000](http://localhost:3000) |
+| **API Health & Endpoints** | [http://localhost/api/health](http://localhost/api/health) | [http://localhost:8000/api/health](http://localhost:8000/api/health) |
+| **Interactive API Docs** | [http://localhost/docs](http://localhost/docs) | [http://localhost:8000/docs](http://localhost:8000/docs) |
+| **WebSocket Real-time Chat** | `ws://localhost/api/chat/ws` | `ws://localhost:8000/api/chat/ws` |
 
 ---
 

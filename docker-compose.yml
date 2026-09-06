@@ -1,43 +1,89 @@
-services:
-  # Runner Docker Sandbox Image (Built so backend can invoke it on demand)
-  runner:
-    build:
-      context: ./runner
-      dockerfile: Dockerfile
-    image: vibe-runner:latest
-    restart: "no"
-    entrypoint: ["sh", "-c", "echo '[VIBE-RUNNER] Image ready for on-demand sandbox tasks.'"]
+name: vibe-manager-stack
 
-  # Backend API & WebSocket Engine
+services:
+  # 1. Reverse Proxy Gateway (Unified Ingress on Port 80)
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    image: vibe-manager-gateway:latest
+    container_name: vibe-gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
+    networks:
+      - vibe_stack_network
+
+  # 2. Backend API & WebSocket Engine (Port 8000)
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     image: vibe-manager-backend:latest
+    container_name: vibe-backend
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
       - SECRET_KEY=${SECRET_KEY:-vibe-secret-super-key-2026-production}
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./vibe_manager.db}
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/vibe_manager.db}
       - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@vibemanager.ai}
       - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-Admin1234!}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
       - DOCKER_RUNNER_IMAGE=vibe-runner:latest
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost}
     volumes:
-      - ./backend_data:/app/data
+      - vibe_db_data:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - vibe_stack_network
 
-  # Next.js 15 Web Application
+  # 3. Next.js 15 Web Application (Port 3000)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     image: vibe-manager-frontend:latest
+    container_name: vibe-frontend
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+      - NEXT_PUBLIC_API_URL=/api
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    networks:
+      - vibe_stack_network
+
+  # 4. Runner Docker Sandbox Image (Built for on-demand task isolation)
+  runner:
+    build:
+      context: ./runner
+      dockerfile: Dockerfile
+    image: vibe-runner:latest
+    container_name: vibe-runner-builder
+    restart: "no"
+    entrypoint: ["sh", "-c", "echo '[VIBE-RUNNER] Sandbox image ready for on-demand tasks.'"]
+    networks:
+      - vibe_stack_network
+
+networks:
+  vibe_stack_network:
+    driver: bridge
+
+volumes:
+  vibe_db_data:
+    driver: local
