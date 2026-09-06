@@ -35,7 +35,7 @@ echo  Vibe Manager AI Stack is Running!
 echo ========================================================
 echo  Unified Web Portal:   http://localhost
 echo  Frontend UI:          http://localhost:3000
-echo  Backend API & Docs:   http://localhost:8000/docs
+echo  Backend API and Docs: http://localhost:8000/docs
 echo.
 echo  Default Admin:        admin@vibemanager.ai / Admin1234!
 echo  Default Invite Code:  VIBE-WELCOME
