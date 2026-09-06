@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     DOCKER_TIMEOUT_SECONDS: int = int(os.getenv("DOCKER_TIMEOUT_SECONDS", "300"))
     
     # Frontend URL (for invitation links and CORS)
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3010")
 
     model_config = {"env_file": ".env", "extra": "allow"}
 

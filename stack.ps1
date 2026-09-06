@@ -31,7 +31,7 @@ switch ($Command) {
     Write-Host " Vibe Manager AI Stack is Active!" -ForegroundColor Green
     Write-Host "========================================================" -ForegroundColor Green
     Write-Host " Unified Portal (Single Entry):  http://localhost" -ForegroundColor Yellow
-    Write-Host " Frontend Direct UI:             http://localhost:3001" -ForegroundColor White
+    Write-Host " Frontend Direct UI:             http://localhost:3010" -ForegroundColor White
     Write-Host " Backend API & Swagger Docs:     http://localhost:8000/docs" -ForegroundColor White
     Write-Host " Persistent PostgreSQL Database: localhost:5432 (vibe_manager)" -ForegroundColor Cyan
     Write-Host "`n Admin Account:  admin@vibemanager.ai / Admin1234!" -ForegroundColor Gray

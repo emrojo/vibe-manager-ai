@@ -75,7 +75,7 @@ services:
     networks:
       - vibe_stack_network
 
-  # 4. Next.js 15 Web Application (Port 3001 / Gateway Port 80)
+  # 4. Next.js 15 Web Application (Port 3010 / Gateway Port 80)
   frontend:
     build:
       context: ./frontend
@@ -84,9 +84,10 @@ services:
     container_name: vibe-frontend
     restart: unless-stopped
     ports:
-      - "3001:3000"
+      - "3010:3010"
     environment:
       - NEXT_PUBLIC_API_URL=/api
+      - PORT=3010
     depends_on:
       backend:
         condition: service_healthy
