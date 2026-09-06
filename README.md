@@ -25,31 +25,41 @@
    - Dynamic project selector listing configured GitHub repositories.
    - Rich prompt authoring interface supporting multiple consecutive requests.
    - Real-time task tracking across states (`PENDING`, `APPROVED`, `RUNNING`, `COMPLETED`, `REJECTED`, `FAILED`).
-   - Direct links to created GitHub Pull Requests and execution log viewers.
+   - Direct links to created GitHub Pull Requests, diffs, and execution log viewers.
+   - Quick action link to the personal Pull Requests center.
 
-2. **Validator Review Desk (`/validator`)**:
+2. **Personal Pull Requests Dashboard (`/pull-requests`)**:
+   - Dedicated overview for **all registered users** to track their prompt-generated Pull Requests.
+   - Search filter by task ID or prompt description and project dropdown filter.
+   - Copyable branch badge (`vibe/task-{id}-{hash}`) with one-click clipboard copy.
+   - Direct link to open the Pull Request on GitHub in a new tab.
+   - Modal inspectors for prompt diffs and Docker container execution logs.
+
+3. **Validator Review Desk (`/validator`)**:
    - Filterable workbench for reviewing pending community proposals.
    - **Inline prompt editor**: Refine, augment, or correct user instructions before dispatching to the AI.
    - **Accept & Enqueue**: Dispatches tasks immediately to the asynchronous Docker queue worker.
    - **Reject**: Mandates an explanation to inform the submitter of rejection rationale.
 
-3. **Ephemeral Docker Sandbox Runner (`/runner`)**:
+4. **Ephemeral Docker Sandbox Runner (`/runner`)**:
    - **Blast Radius Limitation**: All Git clones, AI executions, and file modifications occur inside an isolated Docker container (`vibe-runner:latest`).
-   - Limits: 2GB memory cap, 300s timeout, isolated volume mounts, non-root execution.
+   - Limits: 2GB memory cap, 300s timeout, non-root execution, network limited to GitHub & Google AI APIs.
+   - Payload decoupled via base64 environment encoding (`TASK_PAYLOAD_B64`) and stdout delimiter streaming (`===VIBE_RESULT_START===`), preventing host volume path mismatches.
    - Autonomous pipeline:
-     1. Shallow clones the target repository branch.
+     1. Shallow clones the target repository branch using GitHub PAT.
      2. Analyzes repository tree and system rules.
      3. Queries **Google Gemini** for deterministic file changes and commit metadata.
-     4. Stages and commits changes on branch `vibe/task-{id}-{hash}`.
+     4. Stages and commits changes on dedicated branch `vibe/task-{id}-{hash}`.
      5. Pushes branch and opens a Pull Request via GitHub REST API.
 
-4. **Administrator Console (`/admin`)**:
+5. **Administrator Console (`/admin`)**:
    - User governance: Ban, readmit, and grant/revoke the **Validator** role.
-   - **Invitation Engine**: Generates secure codes (`VIBE-XXXX`) and token links with one-click sharing for **WhatsApp** (`https://wa.me/?text=...`) and **Email** (`mailto:...`).
-   - Project repository manager: Add/edit GitHub repos, default branches, and Personal Access Tokens (PAT).
+   - **Invitation Engine**: Generates secure codes (`VIBE-XXXX`) and token links with one-click sharing for **WhatsApp** and **Email**.
+   - **GitHub Repositories Manager**: Register target repositories, default branches, and Personal Access Tokens (PAT). Configured repositories immediately appear in the user prompt selector.
+   - **Google Gemini AI Settings**: Hot-swap Gemini API Keys and select active AI models (`gemini-2.5-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`).
    - Metrics dashboard: Live counters for users, pending prompts, running containers, and opened PRs.
 
-5. **Integrated Real-Time Chat (`/chat`)**:
+6. **Integrated Real-Time Chat (`/chat`)**:
    - Direct, bi-directional communication between users and the Administrator.
    - Backed by low-latency **WebSockets** with automatic REST polling fallback.
 
@@ -60,8 +70,9 @@
 ```mermaid
 flowchart TD
     subgraph Users & Teams
-        U[Registered User] -->|1. Propose Prompt| DB[(Database)]
+        U[Registered User] -->|1. Propose Prompt| DB[(PostgreSQL 16 DB)]
         U <-->|Direct Support| ADM[Administrator]
+        U -->|View Personal PRs| PRS[My Pull Requests View]
     end
 
     subgraph Human-in-the-Loop Validation
@@ -71,16 +82,17 @@ flowchart TD
 
     subgraph Docker Sandboxed Execution
         Q -->|4. Launch Container| DOCKER[vibe-runner Container]
-        DOCKER -->|Clone Repository| GH[(GitHub Repo)]
+        DOCKER -->|Clone Repository| GH[(GitHub Remote Repo)]
         DOCKER -->|Plan & Modify Code| GEMINI[Google Gemini AI]
         DOCKER -->|Push Branch & Open PR| GH
-        DOCKER -->|5. Store Logs & PR URL| DB
+        DOCKER -->|5. Delimited Result JSON| DB
     end
 
     subgraph Administrative Governance
         ADM -->|Ban / Unban / Promote| USERS[User Management]
         ADM -->|WhatsApp / Email Invites| INV[Invitation System]
-        ADM -->|Add Repos & Tokens| REPOS[Project Management]
+        ADM -->|Add Repos & Tokens| REPOS[GitHub Repository Manager]
+        ADM -->|Configure Models & Keys| AI_CFG[Gemini AI Settings]
     end
 ```
 
@@ -88,7 +100,7 @@ flowchart TD
 
 ## 🚀 Quick Start: Unified Stack Management
 
-The platform is organized into a single managed **Docker Compose Stack** with a built-in reverse proxy gateway (Nginx), unified networking (`vibe_stack_network`), persistent volume storage (`vibe_db_data`), and one-click management scripts.
+The platform is organized into a single managed **Docker Compose Stack** with an integrated reverse proxy gateway (Nginx), dedicated persistent **PostgreSQL 16** database (`vibe-db` with volume `vibe_postgres_data`), unified networking (`vibe_stack_network`), and one-click management scripts.
 
 ### Launching the Stack
 
@@ -107,24 +119,31 @@ docker-compose up -d --build
 | Command | Action |
 | :--- | :--- |
 | `.\stack up` | Builds and launches all stack containers in background |
-| `.\stack down` | Stops and tears down the stack cleanly |
+| `.\stack down` | Stops the stack cleanly (**preserves data volumes**) |
 | `.\stack status` | Shows container status, healthcheck states, and mapped ports |
 | `.\stack logs` | Streams live logs from all containers (or `.\stack logs backend`) |
 | `.\stack restart` | Restarts all active services |
-| `.\stack reset` | Stops the stack and wipes persistent database volumes |
+| `.\stack backup [file]` | Generates an instant SQL dump of the PostgreSQL database |
+| `.\stack restore <file>` | Restores a SQL dump into the PostgreSQL database |
+| `.\stack reset` | Stops stack and wipes persistent database volumes (requires confirmation) |
 
 ---
 
-## 🌐 Unified Single-Port Entrypoint
+## 🌐 Unified Single-Port Entrypoint & Access URLs
 
-Thanks to the integrated **Gateway (Reverse Proxy)** on port `80`, you can access everything through a single clean URL without worrying about separate ports or CORS:
+Thanks to the integrated **Gateway (Reverse Proxy)** on port `80`, you can access everything through a single clean URL without port conflicts:
 
-| Service | Unified URL (Port 80) | Direct Fallback URL |
+| Service / View | Unified URL (Port 80) | Direct Fallback URL |
 | :--- | :--- | :--- |
-| **Web Interface (Next.js)** | [http://localhost](http://localhost) | [http://localhost:3000](http://localhost:3000) |
+| **Web Interface (Next.js)** | [http://localhost](http://localhost) | [http://localhost:3010](http://localhost:3010) |
+| **Mis Pull Requests** | [http://localhost/pull-requests](http://localhost/pull-requests) | [http://localhost:3010/pull-requests](http://localhost:3010/pull-requests) |
+| **Prompt Studio (Dashboard)** | [http://localhost/dashboard](http://localhost/dashboard) | [http://localhost:3010/dashboard](http://localhost:3010/dashboard) |
+| **Validator Desk** | [http://localhost/validator](http://localhost/validator) | [http://localhost:3010/validator](http://localhost:3010/validator) |
+| **Admin Console** | [http://localhost/admin](http://localhost/admin) | [http://localhost:3010/admin](http://localhost:3010/admin) |
 | **API Health & Endpoints** | [http://localhost/api/health](http://localhost/api/health) | [http://localhost:8000/api/health](http://localhost:8000/api/health) |
 | **Interactive API Docs** | [http://localhost/docs](http://localhost/docs) | [http://localhost:8000/docs](http://localhost:8000/docs) |
 | **WebSocket Real-time Chat** | `ws://localhost/api/chat/ws` | `ws://localhost:8000/api/chat/ws` |
+| **PostgreSQL 16 Database** | `localhost:5432` | Database: `vibe_manager` (User: `vibe_user`) |
 
 ---
 
@@ -146,7 +165,7 @@ npm.cmd install              # On Linux/Mac: npm install
 npm.cmd run dev              # On Linux/Mac: npm run dev
 ```
 
-Visit [http://localhost:3000](http://localhost:3000) in your browser.
+Visit [http://localhost:3010](http://localhost:3010) (or unified [http://localhost](http://localhost)) in your browser.
 
 ---
 
@@ -159,7 +178,7 @@ When launched for the first time, the database automatically provisions the defa
 | **Admin Email** | `admin@vibemanager.ai` | Full platform access |
 | **Admin Password** | `Admin1234!` | Configurable via `DEFAULT_ADMIN_PASSWORD` |
 | **Welcome Invite Code** | `VIBE-WELCOME` | For manual code entry |
-| **Direct Invite Link** | `http://localhost:3000/register?invite=welcome-token-2026` | Instant registration link |
+| **Direct Invite Link** | `http://localhost:3010/register?invite=welcome-token-2026` | Instant registration link |
 
 ---
 
@@ -172,8 +191,16 @@ Create a `.env` file in the project root:
 SECRET_KEY=vibe-secret-super-key-2026-production
 ACCESS_TOKEN_EXPIRE_MINUTES=10080
 
-# Database Connection (SQLite local, PostgreSQL for production)
-DATABASE_URL=sqlite+aiosqlite:///./vibe_manager.db
+# PostgreSQL Configuration (Persistent Docker Database)
+POSTGRES_DB=vibe_manager
+POSTGRES_USER=vibe_user
+POSTGRES_PASSWORD=vibe_password_2026_secure
+
+# Database URL:
+# For Docker Compose (PostgreSQL 16):
+DATABASE_URL=postgresql+asyncpg://vibe_user:vibe_password_2026_secure@db:5432/vibe_manager
+# For Standalone Local Dev (SQLite):
+# DATABASE_URL=sqlite+aiosqlite:///./data/vibe_manager.db
 
 # Default Seeded Admin
 DEFAULT_ADMIN_EMAIL=admin@vibemanager.ai
@@ -183,12 +210,15 @@ DEFAULT_ADMIN_PASSWORD=Admin1234!
 GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL=gemini-2.5-flash
 
+# GitHub Fallback Token (optional)
+GITHUB_TOKEN=your_github_pat_here
+
 # Docker Sandbox Runner
 DOCKER_RUNNER_IMAGE=vibe-runner:latest
 DOCKER_TIMEOUT_SECONDS=300
 
 # Frontend URL
-FRONTEND_URL=http://localhost:3000
+FRONTEND_URL=http://localhost:3010
 ```
 
 ---
@@ -197,17 +227,16 @@ FRONTEND_URL=http://localhost:3000
 
 ### Backend Integration Tests (`pytest`):
 ```powershell
-cd backend
-.\.venv\Scripts\python -m pytest tests -v
+docker exec vibe-backend pytest tests/test_api.py -v
 ```
-*Covers end-to-end user registration, invitation validation, validator promotion, prompt drafting, validator inline editing, task approval, queue dispatch, chat messaging, and account banning.*
+*Covers end-to-end user registration, invitation validation, validator promotion, project catalog, prompt submission, validator inline editing, task approval, Docker queue dispatch, personal PR retrieval, chat messaging, and account banning.*
 
 ### Frontend Production Build (`next build`):
 ```powershell
 cd frontend
 npm.cmd run build
 ```
-*Validates that all 10 Next.js routes compile statically with 0 TypeScript or linting errors.*
+*Validates that all 11 Next.js routes (including `/pull-requests`) compile statically with 0 TypeScript or linting errors.*
 
 ---
 

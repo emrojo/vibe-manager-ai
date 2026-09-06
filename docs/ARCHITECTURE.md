@@ -26,8 +26,9 @@ flowchart TB
     end
 
     subgraph Persistence Layer [Storage & Database]
-        DB[(SQLAlchemy Async / SQLite or PostgreSQL)]
-        VOL[Ephemeral Volume Mounts]
+        DB[(PostgreSQL 16 Service - vibe-db)]
+        VOL[(Docker Volume - vibe_postgres_data)]
+        SQLITE[(SQLite Fallback Engine)]
     end
 
     subgraph Sandbox Layer [Docker Engine Isolation]
@@ -44,13 +45,14 @@ flowchart TB
 
     Presentation Layer <-->|HTTPS REST & WSS| Application Layer
     Application Layer <--> DB
+    DB --- VOL
     QUEUE --> DOCKER_MGR
-    DOCKER_MGR -->|docker run with memory & timeout limits| CONTAINER
-    CONTAINER --- VOL
+    DOCKER_MGR -->|docker run with base64 payload & resource caps| CONTAINER
     CONTAINER --> AGENT
     AGENT <-->|JSON Structured Schema| GEMINI_API
     CONTAINER --> GIT
     GIT <-->|Clone / Push / Create PR| GITHUB
+    CONTAINER -->|Delimited Result JSON over stdout| DOCKER_MGR
 ```
 
 ---
@@ -59,17 +61,21 @@ flowchart TB
 
 ### 2.1 Presentation Layer (`/frontend`)
 - **Framework:** Next.js 15 App Router (`src/app`), React 19, TypeScript.
+- **Port:** Configured to port `3010` by default (with unified ingress on port `80` through the Nginx gateway).
 - **Styling & UI:** Tailwind CSS, Lucide React icons, customized dark slate aesthetic.
 - **Client State Management:** `AuthContext` provides session state, reactive token handling, and role-based client-side redirects.
 - **Key Modules:**
+  - `src/app/pull-requests/page.tsx`: **Personal Pull Requests Dashboard** accessible to all registered users, featuring task/prompt search, project filters, copyable branch badges, direct links to GitHub PRs, code diff previews, and execution log modals.
   - `src/app/dashboard/page.tsx`: Project selection dropdown, prompt textarea, real-time prompt lifecycle table, PR hyperlinks, and execution log viewers.
   - `src/app/validator/page.tsx`: Multi-status filter tabs, dual-view diff (Original prompt vs. Editable prompt), approval and rejection modals.
-  - `src/app/admin/page.tsx`: System throughput statistics, user directory, ban/unban toggles, role switches, invitation generator with WhatsApp/Email deep links, and project configuration.
-  - `src/app/chat/page.tsx`: Multi-channel chat interface with automatic WebSocket connection and REST fallback.
+  - `src/app/admin/page.tsx`: System throughput statistics, user directory, ban/unban toggles, role switches, invitation generator with WhatsApp/Email deep links, **GitHub Repositories Management**, and dynamic **Google Gemini AI configuration**.
+  - `src/app/chat/page.tsx`: Multi-channel chat interface with dynamic WebSocket connection detecting port 3010 and REST fallback.
 
 ### 2.2 Application Layer (`/backend`)
 - **Framework:** FastAPI 0.115+ on Python 3.12, Uvicorn ASGI server.
-- **ORM & Database:** SQLAlchemy 2.0 async with `aiosqlite` (default local) and compatible with `asyncpg` for PostgreSQL production deployments.
+- **ORM & Database:** SQLAlchemy 2.0 async with `asyncpg` (PostgreSQL 16) for production and `aiosqlite` for standalone development.
+  - Connection Pool: `pool_size=10`, `max_overflow=20`, `pool_pre_ping=True`.
+  - Auto-Migrator (`app/services/db_migrator.py`): Automatically transfers legacy SQLite records into PostgreSQL on first boot.
 - **Security:**
   - Token hashing: `bcrypt` with automated salt generation.
   - Session tokens: JSON Web Tokens (JWT) signed with HMAC-SHA256 (`HS256`).
@@ -81,10 +87,12 @@ flowchart TB
 ### 2.3 Sandbox Layer (`/runner`)
 - **Docker Image:** `vibe-runner:latest` (built from `runner/Dockerfile`).
 - **Base Image:** `python:3.12-slim` equipped with `git`, `curl`, `ca-certificates`, and `httpx`.
-- **Blast Radius Containment:**
+- **Blast Radius Containment & Decoupled Execution:**
   - **Memory Limit:** 2GB (`--memory 2g`).
   - **Execution Timeout:** 300 seconds default.
-  - **Isolated Volume:** Temporary folder generated dynamically per task (`tmpfs` / host temp dir) mounted at `/runner_workspace`.
+  - **Host-Decoupled Payload:** The entire execution context is base64-encoded (`TASK_PAYLOAD_B64`), completely bypassing host/container volume path translation issues.
+  - **Delimited Output Streaming:** Execution results are transmitted via stdout markers (`===VIBE_RESULT_START===` ... `===VIBE_RESULT_END===`).
+  - **Embedded Fallback Script:** `backend/app/services/run_task.py` guarantees immediate standalone execution if Docker daemon is stopped.
   - **Network Isolation:** Outbound traffic limited to Git repository and Google Gemini API endpoints; no access to the host's private network.
 
 ---
@@ -109,8 +117,8 @@ sequenceDiagram
     V->>BE: POST /api/validation/tasks/{id}/approve
     BE->>Q: enqueue_prompt_task(task_id)
     BE-->>V: Task status updated to APPROVED
-    Q->>DK: Launch container (vibe-runner:latest)
-    Note over DK,C: Memory: 2GB | Timeout: 300s | Volume: /runner_workspace
+    Q->>DK: Launch container (vibe-runner:latest with TASK_PAYLOAD_B64)
+    Note over DK,C: Memory: 2GB | Timeout: 300s | Port 3010 UI Integration
     C->>GH: git clone -b main https://x-access-token:{PAT}@github.com/org/repo
     C->>C: Scan repository file tree and key samples
     C->>AI: generateContent(system_prompt + file_tree + user_prompt)

@@ -8,9 +8,11 @@ This specification provides exhaustive documentation of all REST endpoints and W
 ## 1. General Principles
 
 ### 1.1 Base URLs
-- **Local REST API:** `http://localhost:8000/api`
-- **Local WebSocket Endpoint:** `ws://localhost:8000/api/chat/ws`
-- **Interactive Swagger Documentation:** `http://localhost:8000/docs`
+- **Unified Gateway (Port 80):** `http://localhost/api`
+- **Direct Backend REST API:** `http://localhost:8000/api`
+- **Direct Frontend Application:** `http://localhost:3010`
+- **Local WebSocket Endpoint:** `ws://localhost/api/chat/ws` (or `ws://localhost:8000/api/chat/ws`)
+- **Interactive Swagger Documentation:** `http://localhost/docs` (or `http://localhost:8000/docs`)
 - **Interactive ReDoc Documentation:** `http://localhost:8000/redoc`
 
 ### 1.2 Authentication Header
@@ -149,7 +151,7 @@ All HTTP errors return standard JSON formatted according to FastAPI/Starlette st
     "id": 7,
     "code": "VIBE-F4E8D1",
     "token": "r9a_Token_String...",
-    "invite_url": "http://localhost:3000/register?invite=r9a_Token_String...",
+    "invite_url": "http://localhost:3010/register?invite=r9a_Token_String...",
     "max_uses": 5,
     "used_count": 0,
     "is_active": true,
@@ -164,6 +166,34 @@ All HTTP errors return standard JSON formatted according to FastAPI/Starlette st
 
 ### 3.8 Revoke Invitation
 - **Endpoint:** `DELETE /api/admin/invitations/{invitation_id}`
+
+### 3.9 Get Gemini AI Settings
+- **Endpoint:** `GET /api/admin/settings/gemini`
+- **Access:** `admin` role required.
+- **Response (200 OK):**
+  ```json
+  {
+    "has_api_key": true,
+    "active_model": "gemini-2.5-flash",
+    "available_models": [
+      "gemini-2.5-flash",
+      "gemini-1.5-flash",
+      "gemini-1.5-pro"
+    ]
+  }
+  ```
+
+### 3.10 Update Gemini AI Settings
+- **Endpoint:** `POST /api/admin/settings/gemini`
+- **Access:** `admin` role required.
+- **Request Body:**
+  ```json
+  {
+    "api_key": "AIzaSy...",
+    "model": "gemini-2.5-flash"
+  }
+  ```
+- **Response (200 OK):** Returns success status and updated configuration summary.
 
 ---
 
@@ -216,6 +246,30 @@ All HTTP errors return standard JSON formatted according to FastAPI/Starlette st
 ### 5.3 Get Prompt Details
 - **Endpoint:** `GET /api/prompts/{prompt_id}`
 - **Access:** Task owner, validator, or admin.
+
+### 5.4 List My Pull Requests
+- **Endpoint:** `GET /api/prompts/prs`
+- **Access:** Authenticated user
+- **Description:** Returns all completed prompt tasks created by the current user that have an associated GitHub Pull Request (`pr_url is not null`), sorted by creation date descending.
+- **Response (200 OK):**
+  ```json
+  [
+    {
+      "id": 14,
+      "project_id": 2,
+      "user_id": 3,
+      "original_prompt": "Add search bar to user table",
+      "edited_prompt": null,
+      "status": "COMPLETED",
+      "branch_name": "vibe/task-14-a9f2",
+      "commit_message": "feat: add user table search filter",
+      "pr_url": "https://github.com/my-org/web-app/pull/12",
+      "pr_number": 12,
+      "execution_logs": "[VIBE-RUNNER] Execution completed successfully.",
+      "created_at": "2026-09-06T15:30:00Z"
+    }
+  ]
+  ```
 
 ---
 
