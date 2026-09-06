@@ -18,6 +18,7 @@ from app.routers.projects import router as projects_router
 from app.routers.prompts import router as prompts_router
 from app.routers.validation import router as validation_router
 from app.routers.chat import router as chat_router
+from app.services.db_migrator import auto_migrate_sqlite_to_pg
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("vibe_app")
@@ -27,6 +28,12 @@ async def lifespan(app: FastAPI):
     logger.info("Inicializando base de datos y esquemas...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Check and migrate previous SQLite records if migrating to PostgreSQL
+    try:
+        await auto_migrate_sqlite_to_pg()
+    except Exception as e:
+        logger.warning(f"Error en auto-migrador: {e}")
 
     # Seed admin & sample data if empty
     async with AsyncSessionLocal() as db:

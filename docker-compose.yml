@@ -19,7 +19,28 @@ services:
     networks:
       - vibe_stack_network
 
-  # 2. Backend API & WebSocket Engine (Port 8000)
+  # 2. Dedicated PostgreSQL 16 Database with Named Persistent Volume
+  db:
+    image: postgres:16-alpine
+    container_name: vibe-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-vibe_manager}
+      - POSTGRES_USER=${POSTGRES_USER:-vibe_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-vibe_password_2026_secure}
+    volumes:
+      - vibe_postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vibe_user} -d ${POSTGRES_DB:-vibe_manager}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vibe_stack_network
+
+  # 3. Backend API & WebSocket Engine (Port 8000)
   backend:
     build:
       context: ./backend
@@ -29,9 +50,12 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       - SECRET_KEY=${SECRET_KEY:-vibe-secret-super-key-2026-production}
-      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/vibe_manager.db}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://vibe_user:vibe_password_2026_secure@db:5432/vibe_manager}
       - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@vibemanager.ai}
       - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-Admin1234!}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
@@ -51,7 +75,7 @@ services:
     networks:
       - vibe_stack_network
 
-  # 3. Next.js 15 Web Application (Port 3000)
+  # 4. Next.js 15 Web Application (Port 3001 / Gateway Port 80)
   frontend:
     build:
       context: ./frontend
@@ -60,7 +84,7 @@ services:
     container_name: vibe-frontend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
       - NEXT_PUBLIC_API_URL=/api
     depends_on:
@@ -86,5 +110,7 @@ networks:
     driver: bridge
 
 volumes:
+  vibe_postgres_data:
+    driver: local
   vibe_db_data:
     driver: local
