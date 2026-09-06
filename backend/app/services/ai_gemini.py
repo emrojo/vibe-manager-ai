@@ -98,7 +98,11 @@ async def generate_code_changes(
             candidates = data.get("candidates", [])
             if not candidates:
                 raise RuntimeError("No candidates returned by Gemini")
-            raw_text = candidates[0]["content"]["parts"][0]["text"]
+            raw_text = candidates[0]["content"]["parts"][0]["text"].strip()
+            import re
+            if raw_text.startswith("```"):
+                raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+                raw_text = re.sub(r"\s*```$", "", raw_text)
             parsed = json.loads(raw_text)
             return parsed
         except Exception as e:

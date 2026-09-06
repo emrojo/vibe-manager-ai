@@ -1,7 +1,8 @@
 import datetime
 import secrets
 import urllib.parse
-from typing import List
+from typing import List, Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -193,3 +194,34 @@ async def revoke_invitation(
     inv.is_active = False
     await db.commit()
     return {"message": "Invitación revocada exitosamente"}
+
+# Gemini Settings
+class GeminiSettingsUpdate(BaseModel):
+    api_key: str
+    model: Optional[str] = None
+
+@router.get("/settings/gemini")
+async def get_gemini_settings():
+    is_set = bool(settings.GEMINI_API_KEY)
+    masked = ""
+    if is_set:
+        key = settings.GEMINI_API_KEY
+        masked = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else "****"
+    return {
+        "configured": is_set,
+        "masked_key": masked,
+        "model": settings.GEMINI_MODEL
+    }
+
+@router.post("/settings/gemini")
+async def update_gemini_settings(payload: GeminiSettingsUpdate):
+    if payload.api_key.strip():
+        settings.GEMINI_API_KEY = payload.api_key.strip()
+    if payload.model and payload.model.strip():
+        settings.GEMINI_MODEL = payload.model.strip()
+    return {
+        "success": True,
+        "configured": bool(settings.GEMINI_API_KEY),
+        "model": settings.GEMINI_MODEL
+    }
+

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiRequest, Project, PromptTask } from "@/lib/api";
 import { 
@@ -149,14 +150,24 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8">
       {/* Page Header */}
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white flex items-center gap-3">
-          <Sparkles className="w-7 h-7 text-indigo-400" />
-          Workspace de Prompts
-        </h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Escribe tus instrucciones de modificación sobre el proyecto seleccionado. Los cambios serán revisados por los validadores y ejecutados en un contenedor aislado de Docker para abrir un Pull Request en GitHub.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white flex items-center gap-3">
+            <Sparkles className="w-7 h-7 text-indigo-400" />
+            Workspace de Prompts
+          </h1>
+          <p className="text-slate-400 text-sm mt-1">
+            Escribe tus instrucciones de modificación sobre el proyecto seleccionado. Los cambios serán revisados por los validadores y ejecutados en un contenedor aislado de Docker para abrir un Pull Request en GitHub.
+          </p>
+        </div>
+
+        <Link
+          href="/pull-requests"
+          className="self-start sm:self-center px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/30 hover:border-emerald-500/50 text-emerald-300 text-xs font-semibold flex items-center gap-2 transition-all shadow-md shrink-0"
+        >
+          <GitPullRequest className="w-4 h-4 text-emerald-400" />
+          <span>Ver Mis Pull Requests</span>
+        </Link>
       </div>
 
       {/* Submission Card */}

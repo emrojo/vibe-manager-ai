@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     
+    # GitHub PAT
+    GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
+    
     # Docker Runner
     DOCKER_RUNNER_IMAGE: str = os.getenv("DOCKER_RUNNER_IMAGE", "vibe-runner:latest")
     DOCKER_TIMEOUT_SECONDS: int = int(os.getenv("DOCKER_TIMEOUT_SECONDS", "300"))

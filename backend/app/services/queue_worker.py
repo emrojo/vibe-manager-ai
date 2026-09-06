@@ -36,8 +36,8 @@ async def process_prompt_task(task_id: int):
             
         prompt_text = task.edited_prompt if task.edited_prompt else task.original_prompt
         repo_url = project.repo_url
-        github_token = project.github_token
-        default_branch = project.default_branch
+        github_token = project.github_token or settings.GITHUB_TOKEN
+        default_branch = project.default_branch or "main"
         project_rules = project.system_prompt_rules
 
     # Execute sandbox
@@ -48,7 +48,9 @@ async def process_prompt_task(task_id: int):
             prompt=prompt_text,
             github_token=github_token,
             default_branch=default_branch,
-            project_rules=project_rules
+            project_rules=project_rules,
+            gemini_api_key=settings.GEMINI_API_KEY,
+            gemini_model=settings.GEMINI_MODEL
         )
     except Exception as e:
         runner_result = {

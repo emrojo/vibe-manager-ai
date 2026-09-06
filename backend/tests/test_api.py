@@ -177,3 +177,25 @@ async def test_full_workflow():
         res = await ac.post(f"/api/admin/users/{user1_id}/unban", headers=admin_headers)
         assert res.status_code == 200
         assert res.json()["is_banned"] == False
+
+        # 14. Admin configures and inspects Gemini AI settings
+        res = await ac.get("/api/admin/settings/gemini", headers=admin_headers)
+        assert res.status_code == 200
+        gemini_info = res.json()
+        assert "configured" in gemini_info
+
+        res = await ac.post("/api/admin/settings/gemini", json={"api_key": "AIzaSyTestKey12345", "model": "gemini-2.5-flash"}, headers=admin_headers)
+        assert res.status_code == 200
+        assert res.json()["configured"] == True
+        assert res.json()["model"] == "gemini-2.5-flash"
+
+        # 15. User personal Pull Requests endpoint
+        # Re-login Alice to get valid token
+        res = await ac.post("/api/auth/login", json={"email": "alice@developer.com", "password": "Password123!"})
+        assert res.status_code == 200
+        alice_token = res.json()["access_token"]
+        alice_headers = {"Authorization": f"Bearer {alice_token}"}
+
+        res = await ac.get("/api/prompts/prs", headers=alice_headers)
+        assert res.status_code == 200
+        assert isinstance(res.json(), list)

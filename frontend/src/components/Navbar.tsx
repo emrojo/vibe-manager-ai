@@ -10,6 +10,7 @@ import {
   MessageSquare, 
   LogOut, 
   Layers, 
+  GitPullRequest,
   User as UserIcon 
 } from "lucide-react";
 
@@ -24,6 +25,7 @@ export default function Navbar() {
 
   const navLinks = [
     { href: "/dashboard", label: "Mis Prompts", icon: Layers },
+    { href: "/pull-requests", label: "Mis Pull Requests", icon: GitPullRequest },
     ...(isValidatorOrAdmin ? [{ href: "/validator", label: "Validación", icon: CheckSquare }] : []),
     ...(isAdmin ? [{ href: "/admin", label: "Administración", icon: ShieldAlert }] : []),
     { href: "/chat", label: "Chat", icon: MessageSquare },

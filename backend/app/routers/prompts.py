@@ -95,6 +95,30 @@ async def list_my_prompts(
     tasks = result.scalars().all()
     return [map_prompt_task(t) for t in tasks]
 
+@router.get("/prs", response_model=List[PromptTaskRead])
+async def list_user_pull_requests(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns all Pull Requests generated from prompts submitted by the current user.
+    """
+    result = await db.execute(
+        select(PromptTask)
+        .options(
+            selectinload(PromptTask.project),
+            selectinload(PromptTask.user),
+            selectinload(PromptTask.validator)
+        )
+        .where(
+            PromptTask.user_id == current_user.id,
+            PromptTask.pr_url.isnot(None)
+        )
+        .order_by(PromptTask.created_at.desc())
+    )
+    tasks = result.scalars().all()
+    return [map_prompt_task(t) for t in tasks]
+
 @router.get("/{prompt_id}", response_model=PromptTaskRead)
 async def get_prompt_detail(
     prompt_id: int,
