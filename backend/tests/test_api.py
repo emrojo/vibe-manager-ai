@@ -199,3 +199,33 @@ async def test_full_workflow():
         res = await ac.get("/api/prompts/prs", headers=alice_headers)
         assert res.status_code == 200
         assert isinstance(res.json(), list)
+
+        # 16. Monitor active processes endpoint
+        res = await ac.get("/api/processes/active", headers=alice_headers)
+        assert res.status_code == 200
+        proc_data = res.json()
+        assert "running_count" in proc_data
+        assert "pending_count" in proc_data
+        assert "processes" in proc_data
+        assert isinstance(proc_data["processes"], list)
+
+        # 17. Process details endpoint
+        res = await ac.get(f"/api/processes/{task_id}/details", headers=alice_headers)
+        assert res.status_code == 200
+        detail_data = res.json()
+        assert detail_data["id"] == task_id
+        assert "status" in detail_data
+        assert "logs" in detail_data
+
+        # 18. Admin modifies existing project (edit parameters and toggle active)
+        edit_payload = {
+            "name": "Proyecto Tienda Modificado",
+            "default_branch": "develop",
+            "is_active": False
+        }
+        res = await ac.put(f"/api/projects/{proj_id}", json=edit_payload, headers=admin_headers)
+        assert res.status_code == 200
+        edited_proj = res.json()
+        assert edited_proj["name"] == "Proyecto Tienda Modificado"
+        assert edited_proj["default_branch"] == "develop"
+        assert edited_proj["is_active"] == False

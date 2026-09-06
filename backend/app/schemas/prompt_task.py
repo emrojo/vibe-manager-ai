@@ -29,7 +29,9 @@ class PromptTaskRead(BaseModel):
     commit_message: Optional[str] = None
     pr_url: Optional[str] = None
     pr_number: Optional[int] = None
+    execution_stage: Optional[str] = None
     execution_logs: Optional[str] = None
+    error_message: Optional[str] = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
 

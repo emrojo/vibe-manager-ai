@@ -27,7 +27,9 @@ class PromptTask(Base):
     commit_message = Column(Text, nullable=True)
     pr_url = Column(String(512), nullable=True)
     pr_number = Column(Integer, nullable=True)
+    execution_stage = Column(String(100), nullable=True)  # e.g. CLONING, GEMINI_AI, COMMITTING, CREATING_PR
     execution_logs = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
     
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)

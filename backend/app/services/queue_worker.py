@@ -1,10 +1,14 @@
 import asyncio
 import logging
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from app.config import settings
 from app.database import AsyncSessionLocal
 from app.models.prompt_task import PromptTask
 from app.models.project import Project
+from app.models.user import User
 from app.services.docker_runner import execute_task_sandbox
+from app.services.task_streamer import task_stream_manager
 
 logger = logging.getLogger("queue_worker")
 
@@ -14,31 +18,50 @@ async def process_prompt_task(task_id: int):
     """
     logger.info(f"[Worker] Iniciando procesamiento de tarea #{task_id}...")
     
+    project_name = "Proyecto"
+    user_name = "Usuario"
+    
     async with AsyncSessionLocal() as db:
         # Mark as RUNNING
-        res = await db.execute(select(PromptTask).where(PromptTask.id == task_id))
+        res = await db.execute(
+            select(PromptTask)
+            .options(selectinload(PromptTask.project), selectinload(PromptTask.user))
+            .where(PromptTask.id == task_id)
+        )
         task = res.scalars().first()
         if not task:
             logger.error(f"[Worker] Tarea #{task_id} no encontrada.")
             return
             
         task.status = "RUNNING"
+        task.execution_stage = "Iniciando sandbox..."
+        task.error_message = None
         await db.commit()
         
-        # Get project
-        proj_res = await db.execute(select(Project).where(Project.id == task.project_id))
-        project = proj_res.scalars().first()
+        project = task.project
         if not project:
             task.status = "FAILED"
-            task.execution_logs = "Proyecto no encontrado en base de datos."
+            task.execution_stage = "FAILED"
+            task.error_message = "Proyecto no encontrado en la base de datos."
+            task.execution_logs = "Error: El proyecto asociado a la tarea no existe."
             await db.commit()
+            await task_stream_manager.finish_task(task_id, "FAILED", error=task.error_message)
             return
             
+        project_name = project.name
+        user_name = task.user.name if task.user else "Usuario"
         prompt_text = task.edited_prompt if task.edited_prompt else task.original_prompt
         repo_url = project.repo_url
         github_token = project.github_token or settings.GITHUB_TOKEN
         default_branch = project.default_branch or "main"
         project_rules = project.system_prompt_rules
+
+    # Start task tracking in stream manager
+    await task_stream_manager.start_task(
+        task_id=task_id,
+        project_name=project_name,
+        user_name=user_name
+    )
 
     # Execute sandbox
     try:
@@ -53,9 +76,10 @@ async def process_prompt_task(task_id: int):
             gemini_model=settings.GEMINI_MODEL
         )
     except Exception as e:
+        logger.exception(f"[Worker] Excepción no controlada ejecutando tarea #{task_id}: {e}")
         runner_result = {
             "success": False,
-            "error": str(e),
+            "error": f"Fallo no controlado en worker: {str(e)}",
             "logs": f"Excepción fatal en worker: {str(e)}"
         }
 
@@ -74,12 +98,25 @@ async def process_prompt_task(task_id: int):
         
         if runner_result.get("success"):
             task.status = "COMPLETED"
+            task.execution_stage = "COMPLETED"
+            task.error_message = None
         else:
             task.status = "FAILED"
+            task.execution_stage = "FAILED"
+            task.error_message = runner_result.get("error") or "Error en la ejecución del runner"
             
         await db.commit()
         logger.info(f"[Worker] Tarea #{task_id} finalizada con estado: {task.status}")
 
+    # Notify finish in streamer
+    await task_stream_manager.finish_task(
+        task_id=task_id,
+        status=task.status,
+        error=task.error_message,
+        result=runner_result
+    )
+
 def enqueue_prompt_task(task_id: int):
     """Schedules async background execution without blocking request."""
     asyncio.create_task(process_prompt_task(task_id))
+

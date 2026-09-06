@@ -24,7 +24,10 @@ import {
   Clock,
   Sparkles,
   RefreshCw,
-  Mail
+  Mail,
+  Edit3,
+  Power,
+  Search
 } from "lucide-react";
 
 export default function AdminPage() {
@@ -48,6 +51,18 @@ export default function AdminPage() {
   const [newProjBranch, setNewProjBranch] = useState("main");
   const [newProjToken, setNewProjToken] = useState("");
   const [newProjRules, setNewProjRules] = useState("");
+
+  // Edit project state
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editProjName, setEditProjName] = useState("");
+  const [editProjDesc, setEditProjDesc] = useState("");
+  const [editProjRepo, setEditProjRepo] = useState("");
+  const [editProjBranch, setEditProjBranch] = useState("main");
+  const [editProjToken, setEditProjToken] = useState("");
+  const [editProjRules, setEditProjRules] = useState("");
+  const [editProjActive, setEditProjActive] = useState(true);
+  const [updatingProj, setUpdatingProj] = useState(false);
+  const [projectSearch, setProjectSearch] = useState("");
 
   // Gemini state
   const [geminiConfig, setGeminiConfig] = useState<{ configured: boolean; masked_key: string; model: string }>({
@@ -201,10 +216,70 @@ export default function AdminPage() {
     if (!confirm("¿Seguro que deseas eliminar este proyecto y sus prompts asociados?")) return;
     try {
       await apiRequest(`/projects/${id}`, { method: "DELETE" });
-      setFeedback({ type: "success", text: "Proyecto eliminado." });
+      setFeedback({ type: "success", text: "Proyecto eliminado exitosamente." });
       await loadAllData();
     } catch (err: any) {
       setFeedback({ type: "error", text: err.message });
+    }
+  };
+
+  const handleStartEditProject = (p: Project) => {
+    setEditingProject(p);
+    setEditProjName(p.name);
+    setEditProjDesc(p.description || "");
+    setEditProjRepo(p.repo_url);
+    setEditProjBranch(p.default_branch || "main");
+    setEditProjToken(""); // Blank means keep existing token
+    setEditProjRules(p.system_prompt_rules || "");
+    setEditProjActive(p.is_active);
+  };
+
+  const handleUpdateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProject) return;
+
+    setUpdatingProj(true);
+    try {
+      const payload: any = {
+        name: editProjName.trim(),
+        description: editProjDesc.trim() || undefined,
+        repo_url: editProjRepo.trim(),
+        default_branch: editProjBranch.trim() || "main",
+        system_prompt_rules: editProjRules.trim() || undefined,
+        is_active: editProjActive,
+      };
+      if (editProjToken.trim()) {
+        payload.github_token = editProjToken.trim();
+      }
+
+      await apiRequest(`/projects/${editingProject.id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+
+      setFeedback({ type: "success", text: `Proyecto "${editProjName}" actualizado exitosamente.` });
+      setEditingProject(null);
+      await loadAllData();
+    } catch (err: any) {
+      setFeedback({ type: "error", text: err.message || "Error al actualizar proyecto" });
+    } finally {
+      setUpdatingProj(false);
+    }
+  };
+
+  const handleToggleActiveProject = async (p: Project) => {
+    try {
+      await apiRequest(`/projects/${p.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ is_active: !p.is_active }),
+      });
+      setFeedback({
+        type: "success",
+        text: `Repositorio "${p.name}" ${!p.is_active ? "activado" : "desactivado"} exitosamente.`,
+      });
+      await loadAllData();
+    } catch (err: any) {
+      setFeedback({ type: "error", text: err.message || "Error al cambiar estado" });
     }
   };
 
@@ -725,47 +800,135 @@ export default function AdminPage() {
             </form>
           </div>
 
-          {/* Projects List */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {projectsList.map((p) => (
-              <div
-                key={p.id}
-                className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h4 className="font-bold text-white text-base">{p.name}</h4>
-                    <a
-                      href={p.repo_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono mt-0.5"
-                    >
-                      {p.repo_url}
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
+          {/* Projects Search and Filter Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-bold text-white">
+                Repositorios Registrados ({projectsList.length})
+              </h3>
+              <p className="text-xs text-slate-400">
+                Visualiza, modifica parámetros y activa/pausa los repositorios disponibles.
+              </p>
+            </div>
 
-                  <button
-                    onClick={() => handleDeleteProject(p.id)}
-                    className="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="text-xs text-slate-400 space-y-1 bg-slate-950 p-3 rounded-xl border border-slate-800/80 font-mono">
-                  <div>Rama base: <span className="text-slate-200">{p.default_branch}</span></div>
-                  <div>GitHub Token: {p.has_github_token ? <span className="text-emerald-400 font-semibold">Configurado</span> : <span className="text-amber-400 font-semibold">No configurado</span>}</div>
-                  {p.system_prompt_rules && (
-                    <div className="mt-1 text-[11px] text-slate-400 italic">
-                      Reglas: {p.system_prompt_rules}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+            <div className="relative w-full sm:w-72">
+              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={projectSearch}
+                onChange={(e) => setProjectSearch(e.target.value)}
+                placeholder="Buscar repositorio..."
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 font-mono"
+              />
+            </div>
           </div>
+
+          {/* Projects List */}
+          {projectsList.filter(
+            (p) =>
+              p.name.toLowerCase().includes(projectSearch.toLowerCase()) ||
+              p.repo_url.toLowerCase().includes(projectSearch.toLowerCase())
+          ).length === 0 ? (
+            <div className="text-center py-12 bg-slate-900/40 border border-dashed border-slate-800 rounded-2xl">
+              <FolderGit2 className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+              <p className="text-sm text-slate-400 font-medium">No se encontraron repositorios</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {projectsList
+                .filter(
+                  (p) =>
+                    p.name.toLowerCase().includes(projectSearch.toLowerCase()) ||
+                    p.repo_url.toLowerCase().includes(projectSearch.toLowerCase())
+                )
+                .map((p) => (
+                  <div
+                    key={p.id}
+                    className={`bg-slate-900 border rounded-2xl p-5 shadow-xl space-y-3 transition-all ${
+                      p.is_active ? "border-slate-800" : "border-slate-800/50 opacity-70"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-white text-base">{p.name}</h4>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                              p.is_active
+                                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                                : "bg-slate-800 text-slate-400 border border-slate-700"
+                            }`}
+                          >
+                            {p.is_active ? "Activo" : "Pausado"}
+                          </span>
+                        </div>
+
+                        <a
+                          href={p.repo_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-mono"
+                        >
+                          {p.repo_url}
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        {/* Toggle Active button */}
+                        <button
+                          onClick={() => handleToggleActiveProject(p)}
+                          title={p.is_active ? "Pausar repositorio" : "Activar repositorio"}
+                          className={`p-2 rounded-lg text-xs transition-colors ${
+                            p.is_active
+                              ? "text-emerald-400 hover:bg-emerald-500/10"
+                              : "text-slate-500 hover:text-emerald-400 hover:bg-slate-800"
+                          }`}
+                        >
+                          <Power className="w-4 h-4" />
+                        </button>
+
+                        {/* Edit button */}
+                        <button
+                          onClick={() => handleStartEditProject(p)}
+                          title="Modificar repositorio"
+                          className="p-2 text-slate-400 hover:text-purple-300 rounded-lg hover:bg-purple-500/10 transition-colors"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+
+                        {/* Delete button */}
+                        <button
+                          onClick={() => handleDeleteProject(p.id)}
+                          title="Eliminar repositorio"
+                          className="p-2 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-slate-400 space-y-1 bg-slate-950 p-3 rounded-xl border border-slate-800/80 font-mono">
+                      <div className="flex items-center justify-between">
+                        <span>Rama base: <strong className="text-slate-200">{p.default_branch}</strong></span>
+                        <span>
+                          {p.has_github_token ? (
+                            <span className="text-emerald-400 font-medium">● PAT Configurado</span>
+                          ) : (
+                            <span className="text-amber-400 font-medium">○ Sin PAT Personal</span>
+                          )}
+                        </span>
+                      </div>
+                      {p.system_prompt_rules && (
+                        <div className="mt-1 text-[11px] text-slate-400 italic border-t border-slate-900 pt-1">
+                          Reglas: {p.system_prompt_rules}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -871,6 +1034,133 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* EDIT PROJECT MODAL */}
+      {editingProject && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-purple-400" />
+                <h3 className="font-bold text-white text-base">
+                  Modificar Repositorio GitHub
+                </h3>
+              </div>
+              <button
+                onClick={() => setEditingProject(null)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateProject} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Nombre del Proyecto
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editProjName}
+                  onChange={(e) => setEditProjName(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                  URL del Repositorio GitHub
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editProjRepo}
+                  onChange={(e) => setEditProjRepo(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 font-mono"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                    Rama Base por Defecto
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editProjBranch}
+                    onChange={(e) => setEditProjBranch(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                    Actualizar PAT (Opcional)
+                  </label>
+                  <input
+                    type="password"
+                    value={editProjToken}
+                    onChange={(e) => setEditProjToken(e.target.value)}
+                    placeholder={editingProject.has_github_token ? "Mantener actual..." : "ghp_..."}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
+                  Reglas y Directrices para la IA
+                </label>
+                <textarea
+                  rows={3}
+                  value={editProjRules}
+                  onChange={(e) => setEditProjRules(e.target.value)}
+                  placeholder="Directrices técnicas que Gemini aplicará en este repositorio..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 p-3 bg-slate-950 rounded-xl border border-slate-800">
+                <input
+                  type="checkbox"
+                  id="editProjActive"
+                  checked={editProjActive}
+                  onChange={(e) => setEditProjActive(e.target.checked)}
+                  className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-purple-600 focus:ring-purple-500"
+                />
+                <label htmlFor="editProjActive" className="text-xs text-slate-300 select-none cursor-pointer">
+                  Repositorio activo (visible y seleccionable para que los usuarios envíen prompts)
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingProject(null)}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={updatingProj || !editProjName.trim() || !editProjRepo.trim()}
+                  className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-purple-600/20 flex items-center gap-2 transition-all disabled:opacity-50"
+                >
+                  {updatingProj ? (
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>Guardar Cambios</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

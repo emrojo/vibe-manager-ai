@@ -355,3 +355,53 @@ All HTTP errors return standard JSON formatted according to FastAPI/Starlette st
     "is_read": false
   }
   ```
+
+---
+
+## 8. Real-Time Process Monitor & Live Console (`/api/processes`)
+
+### 8.1 Active Processes and Recent Tasks
+- **Endpoint:** `GET /api/processes/active`
+- **Access:** Authenticated user
+- **Response (200 OK):**
+  ```json
+  {
+    "running_count": 1,
+    "pending_count": 0,
+    "processes": [
+      {
+        "id": 15,
+        "project_id": 2,
+        "project_name": "Online Store",
+        "user_id": 3,
+        "user_name": "Jane Doe",
+        "original_prompt": "Add cart badge",
+        "edited_prompt": null,
+        "status": "RUNNING",
+        "stage": "Clonando repositorio GitHub...",
+        "duration_seconds": 24,
+        "error_message": null,
+        "branch_name": "vibe/task-15-a1b2c3",
+        "pr_url": null,
+        "pr_number": null,
+        "created_at": "2026-09-06T19:30:00Z",
+        "updated_at": "2026-09-06T19:30:24Z"
+      }
+    ]
+  }
+  ```
+
+### 8.2 Process Details
+- **Endpoint:** `GET /api/processes/{task_id}/details`
+- **Access:** Authenticated user
+- **Response (200 OK):** Returns detailed process summary with accumulated execution logs and failure reason if applicable.
+
+### 8.3 Live Console Streaming (WebSocket)
+- **Protocol:** `ws://` / `wss://`
+- **Endpoint:** `/api/processes/{task_id}/console`
+- **Behavior:**
+  - Upon connection, sends `init` event with existing logs and current stage.
+  - While running, streams live `log` lines emitted from the runner in real-time.
+  - Emits `stage` event when phase changes (e.g., *Cloning*, *Invoking Gemini*, *Pushing PR*).
+  - Emits `finish` event when execution completes or fails, with final status and concise `error` message.
+

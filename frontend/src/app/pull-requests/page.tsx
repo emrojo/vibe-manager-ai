@@ -21,6 +21,7 @@ import {
   Copy,
   Check
 } from "lucide-react";
+import LiveConsoleModal from "@/components/LiveConsoleModal";
 
 export default function PullRequestsPage() {
   const router = useRouter();
@@ -303,56 +304,12 @@ export default function PullRequestsPage() {
         </div>
       )}
 
-      {/* Execution Logs Modal */}
+      {/* Live Console Modal */}
       {selectedLogsTask && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Terminal className="w-5 h-5 text-indigo-400" />
-                <h3 className="font-bold text-white text-base">
-                  Logs de Ejecución Sandbox — Tarea #{selectedLogsTask.id}
-                </h3>
-              </div>
-              <button
-                onClick={() => setSelectedLogsTask(null)}
-                className="text-slate-400 hover:text-white text-lg font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            {selectedLogsTask.pr_url && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs flex items-center justify-between">
-                <span className="text-emerald-300 font-medium truncate">
-                  PR: {selectedLogsTask.pr_url}
-                </span>
-                <a
-                  href={selectedLogsTask.pr_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-emerald-400 hover:underline flex items-center gap-1 shrink-0 ml-2"
-                >
-                  <span>Abrir</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-            )}
-
-            <pre className="bg-black/90 text-emerald-300 font-mono text-xs p-4 rounded-xl max-h-96 overflow-y-auto whitespace-pre-wrap leading-relaxed border border-slate-800">
-              {selectedLogsTask.execution_logs || "Sin registros de ejecución."}
-            </pre>
-
-            <div className="flex justify-end">
-              <button
-                onClick={() => setSelectedLogsTask(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-semibold transition-colors"
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
+        <LiveConsoleModal
+          task={selectedLogsTask}
+          onClose={() => setSelectedLogsTask(null)}
+        />
       )}
     </div>
   );

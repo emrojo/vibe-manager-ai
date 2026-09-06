@@ -22,44 +22,45 @@
 ## 🌟 Key Capabilities
 
 1. **User Prompt Studio (`/dashboard`)**:
-   - Dynamic project selector listing configured GitHub repositories.
+   - Dynamic project selector listing active GitHub repositories.
    - Rich prompt authoring interface supporting multiple consecutive requests.
    - Real-time task tracking across states (`PENDING`, `APPROVED`, `RUNNING`, `COMPLETED`, `REJECTED`, `FAILED`).
-   - Direct links to created GitHub Pull Requests, diffs, and execution log viewers.
-   - Quick action link to the personal Pull Requests center.
+   - Clear failure cause diagnosis: prominent red alerts indicating the exact root cause of runner errors.
+   - One-click **Live Terminal Console** access for running and completed tasks.
 
-2. **Personal Pull Requests Dashboard (`/pull-requests`)**:
+2. **Real-Time Process Monitor & Live Console (`/processes`)**:
+   - Live monitoring dashboard showing all sandbox execution tasks in real-time.
+   - Active process ticker with elapsed execution counter (`00:42`).
+   - Current stage indicators (*Cloning repository*, *Querying Gemini AI*, *Creating Pull Request*).
+   - **Live Streaming Terminal Console**: interactive terminal emulator connecting via WebSocket (`/api/processes/{id}/console`) streaming `stdout` & `stderr` in real-time with autoscroll, syntax coloring, clipboard copy, and log file download.
+
+3. **Personal Pull Requests Dashboard (`/pull-requests`)**:
    - Dedicated overview for **all registered users** to track their prompt-generated Pull Requests.
-   - Search filter by task ID or prompt description and project dropdown filter.
+   - Search filter by task ID, branch, or prompt description and project dropdown filter.
    - Copyable branch badge (`vibe/task-{id}-{hash}`) with one-click clipboard copy.
    - Direct link to open the Pull Request on GitHub in a new tab.
-   - Modal inspectors for prompt diffs and Docker container execution logs.
+   - Modal inspectors with live terminal logs.
 
-3. **Validator Review Desk (`/validator`)**:
+4. **Validator Review Desk (`/validator`)**:
    - Filterable workbench for reviewing pending community proposals.
    - **Inline prompt editor**: Refine, augment, or correct user instructions before dispatching to the AI.
    - **Accept & Enqueue**: Dispatches tasks immediately to the asynchronous Docker queue worker.
-   - **Reject**: Mandates an explanation to inform the submitter of rejection rationale.
+   - **Live console inspection**: Open live console during execution and inspect detailed failure causes on rejected or failed tasks.
 
-4. **Ephemeral Docker Sandbox Runner (`/runner`)**:
+5. **Ephemeral Docker Sandbox Runner (`/runner`)**:
    - **Blast Radius Limitation**: All Git clones, AI executions, and file modifications occur inside an isolated Docker container (`vibe-runner:latest`).
+   - Real-time line-by-line streaming: Asynchronous streaming of stdout/stderr directly to connected WebSockets without blocking.
    - Limits: 2GB memory cap, 300s timeout, non-root execution, network limited to GitHub & Google AI APIs.
-   - Payload decoupled via base64 environment encoding (`TASK_PAYLOAD_B64`) and stdout delimiter streaming (`===VIBE_RESULT_START===`), preventing host volume path mismatches.
-   - Autonomous pipeline:
-     1. Shallow clones the target repository branch using GitHub PAT.
-     2. Analyzes repository tree and system rules.
-     3. Queries **Google Gemini** for deterministic file changes and commit metadata.
-     4. Stages and commits changes on dedicated branch `vibe/task-{id}-{hash}`.
-     5. Pushes branch and opens a Pull Request via GitHub REST API.
+   - Payload decoupled via base64 environment encoding (`TASK_PAYLOAD_B64`) and stdout delimiter streaming (`===VIBE_RESULT_START===`).
 
-5. **Administrator Console (`/admin`)**:
+6. **Administrator Console (`/admin`)**:
    - User governance: Ban, readmit, and grant/revoke the **Validator** role.
    - **Invitation Engine**: Generates secure codes (`VIBE-XXXX`) and token links with one-click sharing for **WhatsApp** and **Email**.
-   - **GitHub Repositories Manager**: Register target repositories, default branches, and Personal Access Tokens (PAT). Configured repositories immediately appear in the user prompt selector.
+   - **GitHub Repositories Manager & Editor**: View all repositories, search/filter, modify repository parameters (Name, URL, default branch, PAT, AI system rules), and quickly toggle repository active/paused status.
    - **Google Gemini AI Settings**: Hot-swap Gemini API Keys and select active AI models (`gemini-2.5-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`).
    - Metrics dashboard: Live counters for users, pending prompts, running containers, and opened PRs.
 
-6. **Integrated Real-Time Chat (`/chat`)**:
+7. **Integrated Real-Time Chat (`/chat`)**:
    - Direct, bi-directional communication between users and the Administrator.
    - Backed by low-latency **WebSockets** with automatic REST polling fallback.
 

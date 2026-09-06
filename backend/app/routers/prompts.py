@@ -31,7 +31,9 @@ def map_prompt_task(task: PromptTask) -> PromptTaskRead:
         commit_message=task.commit_message,
         pr_url=task.pr_url,
         pr_number=task.pr_number,
+        execution_stage=task.execution_stage,
         execution_logs=task.execution_logs,
+        error_message=task.error_message,
         created_at=task.created_at,
         updated_at=task.updated_at
     )

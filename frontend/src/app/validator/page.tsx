@@ -16,8 +16,10 @@ import {
   Play, 
   Save, 
   AlertCircle, 
-  Layers 
+  Layers,
+  Terminal 
 } from "lucide-react";
+import LiveConsoleModal from "@/components/LiveConsoleModal";
 
 export default function ValidatorPage() {
   const router = useRouter();
@@ -33,6 +35,7 @@ export default function ValidatorPage() {
   const [rejectionReason, setRejectionReason] = useState<string>("");
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [selectedConsoleTask, setSelectedConsoleTask] = useState<PromptTask | null>(null);
 
   useEffect(() => {
     if (!authLoading) {
@@ -340,8 +343,21 @@ export default function ValidatorPage() {
                   </div>
                 )}
 
+                {/* Failure Cause Banner */}
+                {task.status === "FAILED" && (
+                  <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-300 space-y-1">
+                    <strong className="text-rose-400 block font-semibold flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4" />
+                      Causa del Error de Ejecución:
+                    </strong>
+                    <p className="font-mono whitespace-pre-wrap leading-relaxed">
+                      {task.error_message || "Fallo en el contenedor Docker del runner"}
+                    </p>
+                  </div>
+                )}
+
                 {/* Actions */}
-                {isPending && (
+                {isPending ? (
                   <div className="flex items-center justify-end gap-3 pt-2">
                     <button
                       onClick={() => setRejectingTaskId(task.id)}
@@ -365,11 +381,33 @@ export default function ValidatorPage() {
                       <span>Aceptar y Encolar a Docker</span>
                     </button>
                   </div>
+                ) : (
+                  <div className="flex items-center justify-end gap-3 pt-2">
+                    <button
+                      onClick={() => setSelectedConsoleTask(task)}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                        task.status === "RUNNING"
+                          ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20"
+                          : "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                      }`}
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>{task.status === "RUNNING" ? "Ver Consola en Vivo" : "Ver Consola"}</span>
+                    </button>
+                  </div>
                 )}
               </div>
             );
           })}
         </div>
+      )}
+
+      {/* Live Console Modal */}
+      {selectedConsoleTask && (
+        <LiveConsoleModal
+          task={selectedConsoleTask}
+          onClose={() => setSelectedConsoleTask(null)}
+        />
       )}
 
       {/* Reject Modal */}

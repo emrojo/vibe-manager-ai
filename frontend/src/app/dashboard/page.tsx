@@ -19,6 +19,7 @@ import {
   Sparkles,
   AlertCircle
 } from "lucide-react";
+import LiveConsoleModal from "@/components/LiveConsoleModal";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -341,6 +342,12 @@ export default function DashboardPage() {
                           Motivo: {task.rejection_reason}
                         </p>
                       )}
+                      {task.status === "FAILED" && (
+                        <div className="mt-1 p-1.5 bg-rose-500/10 border border-rose-500/20 rounded-md text-[11px] text-rose-300 font-mono">
+                          <strong className="text-rose-400 block font-sans text-[10px] uppercase">Causa del error:</strong>
+                          <span className="line-clamp-2">{task.error_message || "Error en el contenedor del runner"}</span>
+                        </div>
+                      )}
                     </td>
                     <td className="py-3.5 px-4">
                       {task.pr_url ? (
@@ -359,15 +366,23 @@ export default function DashboardPage() {
                       )}
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      {task.execution_logs && (
+                      {task.status === "RUNNING" ? (
+                        <button
+                          onClick={() => setSelectedTaskLogs(task)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold shadow-sm transition-all"
+                        >
+                          <Terminal className="w-3.5 h-3.5 animate-pulse" />
+                          <span>Consola en Vivo</span>
+                        </button>
+                      ) : (task.execution_logs || task.status === "FAILED" || task.status === "COMPLETED") ? (
                         <button
                           onClick={() => setSelectedTaskLogs(task)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 transition-colors"
                         >
                           <Terminal className="w-3.5 h-3.5" />
-                          <span>Logs</span>
+                          <span>Consola</span>
                         </button>
-                      )}
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -377,48 +392,12 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Logs Modal */}
+      {/* Live Console Modal */}
       {selectedTaskLogs && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Terminal className="w-5 h-5 text-indigo-400" />
-                <h3 className="font-bold text-white text-base">
-                  Logs de Ejecución Sandbox — Tarea #{selectedTaskLogs.id}
-                </h3>
-              </div>
-              <button
-                onClick={() => setSelectedTaskLogs(null)}
-                className="text-slate-400 hover:text-white text-lg font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            {selectedTaskLogs.commit_message && (
-              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs">
-                <span className="text-slate-400 font-semibold uppercase tracking-wider block mb-1">
-                  Commit Realizado:
-                </span>
-                <code className="text-emerald-400 font-mono">{selectedTaskLogs.commit_message}</code>
-              </div>
-            )}
-
-            <pre className="bg-black/80 text-emerald-300 font-mono text-xs p-4 rounded-xl max-h-96 overflow-y-auto whitespace-pre-wrap leading-relaxed border border-slate-800">
-              {selectedTaskLogs.execution_logs || "Sin registros disponibles."}
-            </pre>
-
-            <div className="flex justify-end">
-              <button
-                onClick={() => setSelectedTaskLogs(null)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-sm font-medium transition-colors"
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
+        <LiveConsoleModal
+          task={selectedTaskLogs}
+          onClose={() => setSelectedTaskLogs(null)}
+        />
       )}
     </div>
   );

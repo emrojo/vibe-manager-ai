@@ -39,7 +39,9 @@ export interface PromptTask {
   commit_message?: string;
   pr_url?: string;
   pr_number?: number;
+  execution_stage?: string;
   execution_logs?: string;
+  error_message?: string;
   created_at: string;
   updated_at: string;
 }

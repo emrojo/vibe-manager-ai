@@ -3,7 +3,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.config import settings
 from app.database import engine, Base, AsyncSessionLocal
@@ -18,6 +18,7 @@ from app.routers.projects import router as projects_router
 from app.routers.prompts import router as prompts_router
 from app.routers.validation import router as validation_router
 from app.routers.chat import router as chat_router
+from app.routers.processes import router as processes_router
 from app.services.db_migrator import auto_migrate_sqlite_to_pg
 
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +29,11 @@ async def lifespan(app: FastAPI):
     logger.info("Inicializando base de datos y esquemas...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS error_message TEXT;"))
+            await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS execution_stage VARCHAR(100);"))
+        except Exception as e:
+            logger.debug(f"Schema column check: {e}")
 
     # Check and migrate previous SQLite records if migrating to PostgreSQL
     try:
@@ -110,6 +116,7 @@ app.include_router(projects_router, prefix=settings.API_V1_STR)
 app.include_router(prompts_router, prefix=settings.API_V1_STR)
 app.include_router(validation_router, prefix=settings.API_V1_STR)
 app.include_router(chat_router, prefix=settings.API_V1_STR)
+app.include_router(processes_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 def read_root():
