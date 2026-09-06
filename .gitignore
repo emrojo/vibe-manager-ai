@@ -1,0 +1,29 @@
+# Environments & dependencies
+node_modules/
+.next/
+out/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Database
+*.db
+*.sqlite3
+
+# Environment
+.env
+.env.local
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Testing & build
+.pytest_cache/
+.coverage
+htmlcov/
+backend_data/

@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # Runner Docker Sandbox Image (Built first so backend can invoke it)
+  runner:
+    build:
+      context: ./runner
+      dockerfile: Dockerfile
+    image: vibe-runner:latest
+
+  # Backend API & WebSocket Engine
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: vibe-manager-backend:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET_KEY=${SECRET_KEY:-vibe-secret-super-key-2026-production}
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./vibe_manager.db}
+      - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@vibemanager.ai}
+      - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-Admin1234!}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - DOCKER_RUNNER_IMAGE=vibe-runner:latest
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+    volumes:
+      - ./backend_data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - runner
+
+  # Next.js 15 Web Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: vibe-manager-frontend:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api
+    depends_on:
+      - backend

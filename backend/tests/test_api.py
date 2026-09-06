@@ -1,0 +1,179 @@
+import pytest
+import pytest_asyncio
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+
+from app.main import app
+from app.database import Base, get_db
+from app.config import settings
+
+TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
+
+test_engine = create_async_engine(
+    TEST_DB_URL,
+    connect_args={"check_same_thread": False}
+)
+TestingSessionLocal = async_sessionmaker(
+    bind=test_engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
+
+async def override_get_db():
+    async with TestingSessionLocal() as session:
+        yield session
+
+app.dependency_overrides[get_db] = override_get_db
+
+@pytest_asyncio.fixture(autouse=True)
+async def prepare_database():
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+@pytest.mark.asyncio
+async def test_full_workflow():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 1. Health check
+        res = await ac.get("/api/health")
+        assert res.status_code == 200
+        assert res.json() == {"status": "healthy"}
+
+        # 2. Register first user (becomes admin)
+        admin_payload = {
+            "email": "superadmin@vibemanager.ai",
+            "name": "Super Admin",
+            "password": "Password123!"
+        }
+        res = await ac.post("/api/auth/register", json=admin_payload)
+        assert res.status_code == 200, res.text
+        admin_data = res.json()
+        admin_token = admin_data["access_token"]
+        assert admin_data["user"]["role"] == "admin"
+
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # 3. Admin creates an invitation code
+        inv_payload = {"max_uses": 5, "expires_in_days": 10}
+        res = await ac.post("/api/admin/invitations", json=inv_payload, headers=admin_headers)
+        assert res.status_code == 200
+        inv_data = res.json()
+        invite_code = inv_data["code"]
+        invite_token = inv_data["token"]
+        assert "VIBE-" in invite_code
+        assert inv_data["whatsapp_share_url"].startswith("https://wa.me/?text=")
+
+        # 4. Normal user registers using invitation code
+        user1_payload = {
+            "email": "alice@developer.com",
+            "name": "Alice Developer",
+            "password": "Password123!",
+            "invite_code": invite_code
+        }
+        res = await ac.post("/api/auth/register", json=user1_payload)
+        assert res.status_code == 200
+        user1_data = res.json()
+        user1_token = user1_data["access_token"]
+        user1_id = user1_data["user"]["id"]
+        assert user1_data["user"]["role"] == "user"
+        user1_headers = {"Authorization": f"Bearer {user1_token}"}
+
+        # 5. Normal user registers using invitation token via URL
+        user2_payload = {
+            "email": "bob@validator.com",
+            "name": "Bob Reviewer",
+            "password": "Password123!",
+            "invite_token": invite_token
+        }
+        res = await ac.post("/api/auth/register", json=user2_payload)
+        assert res.status_code == 200
+        user2_data = res.json()
+        user2_id = user2_data["user"]["id"]
+        user2_token = user2_data["access_token"]
+
+        # 6. Admin promotes Bob (user2) to validator
+        res = await ac.post(f"/api/admin/users/{user2_id}/role", json={"role": "validator"}, headers=admin_headers)
+        assert res.status_code == 200
+        assert res.json()["role"] == "validator"
+
+        # Re-login Bob to refresh claims
+        res = await ac.post("/api/auth/login", json={"email": "bob@validator.com", "password": "Password123!"})
+        assert res.status_code == 200
+        val_token = res.json()["access_token"]
+        val_headers = {"Authorization": f"Bearer {val_token}"}
+
+        # 7. Admin creates a project
+        proj_payload = {
+            "name": "React Dashboard",
+            "description": "Dashboard administrativo",
+            "repo_url": "https://github.com/test-org/react-dashboard",
+            "default_branch": "main",
+            "github_token": "ghp_mocktoken12345"
+        }
+        res = await ac.post("/api/projects", json=proj_payload, headers=admin_headers)
+        assert res.status_code == 200
+        proj_id = res.json()["id"]
+
+        # 8. Alice submits a prompt for this project
+        prompt_payload = {
+            "project_id": proj_id,
+            "prompt": "Añade un botón de exportar a PDF en la barra de navegación"
+        }
+        res = await ac.post("/api/prompts", json=prompt_payload, headers=user1_headers)
+        assert res.status_code == 200
+        task_data = res.json()
+        task_id = task_data["id"]
+        assert task_data["status"] == "PENDING"
+
+        # 9. Validator Bob reviews pending tasks
+        res = await ac.get("/api/validation/tasks?status_filter=PENDING", headers=val_headers)
+        assert res.status_code == 200
+        pending_tasks = res.json()
+        assert len(pending_tasks) >= 1
+
+        # 10. Validator edits the prompt instructions
+        edit_payload = {
+            "edited_prompt": "Añade un botón de exportar a PDF en la barra superior usando jsPDF y un icono de descarga."
+        }
+        res = await ac.put(f"/api/validation/tasks/{task_id}/edit", json=edit_payload, headers=val_headers)
+        assert res.status_code == 200
+        assert res.json()["edited_prompt"] == edit_payload["edited_prompt"]
+
+        # 11. Validator approves task (enters queue)
+        res = await ac.post(f"/api/validation/tasks/{task_id}/approve", headers=val_headers)
+        assert res.status_code == 200
+        assert res.json()["status"] in ["APPROVED", "RUNNING", "COMPLETED"]
+
+        # 12. Chat between Alice and Admin
+        chat_payload = {
+            "recipient_id": admin_data["user"]["id"],
+            "content": "Hola Admin, acabo de mandar un prompt para el proyecto."
+        }
+        res = await ac.post("/api/chat/messages", json=chat_payload, headers=user1_headers)
+        assert res.status_code == 200
+        msg_data = res.json()
+        assert msg_data["content"] == chat_payload["content"]
+
+        # Admin checks messages from Alice
+        res = await ac.get(f"/api/chat/messages/{user1_id}", headers=admin_headers)
+        assert res.status_code == 200
+        msgs = res.json()
+        assert len(msgs) == 1
+        assert msgs[0]["is_read"] == True
+
+        # 13. Admin bans Alice
+        res = await ac.post(f"/api/admin/users/{user1_id}/ban", headers=admin_headers)
+        assert res.status_code == 200
+        assert res.json()["is_banned"] == True
+
+        # Alice tries to login -> 403 Forbidden
+        res = await ac.post("/api/auth/login", json={"email": "alice@developer.com", "password": "Password123!"})
+        assert res.status_code == 403
+
+        # Admin unbans Alice
+        res = await ac.post(f"/api/admin/users/{user1_id}/unban", headers=admin_headers)
+        assert res.status_code == 200
+        assert res.json()["is_banned"] == False
