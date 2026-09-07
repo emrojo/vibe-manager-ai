@@ -442,3 +442,195 @@ async def test_concurrent_active_quota():
         assert resp4.status_code == 429
         assert "Límite alcanzado" in resp4.json()["detail"]
 
+
+@pytest.mark.asyncio
+async def test_repo_validators_workflow():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 1. Register admin
+        admin_res = await ac.post("/api/auth/register", json={
+            "email": "admin_rv@test.com",
+            "name": "Admin RV",
+            "password": "Password123!"
+        })
+        assert admin_res.status_code == 200
+        admin_token = admin_res.json()["access_token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # Create invitation for users
+        inv_res = await ac.post("/api/admin/invitations", json={"max_uses": 10}, headers=admin_headers)
+        assert inv_res.status_code == 200
+        invite_code = inv_res.json()["code"]
+
+        # 2. Register User 1 (Validator A)
+        u1_res = await ac.post("/api/auth/register", json={
+            "email": "validator_a@test.com",
+            "name": "Validator Alpha",
+            "password": "Password123!",
+            "invite_code": invite_code
+        })
+        assert u1_res.status_code == 200, u1_res.text
+        u1_token = u1_res.json()["access_token"]
+        u1_id = u1_res.json()["user"]["id"]
+        u1_headers = {"Authorization": f"Bearer {u1_token}"}
+
+        # 3. Register User 2 (Validator B)
+        u2_res = await ac.post("/api/auth/register", json={
+            "email": "validator_b@test.com",
+            "name": "Validator Beta",
+            "password": "Password123!",
+            "invite_code": invite_code
+        })
+        assert u2_res.status_code == 200, u2_res.text
+        u2_token = u2_res.json()["access_token"]
+        u2_id = u2_res.json()["user"]["id"]
+        u2_headers = {"Authorization": f"Bearer {u2_token}"}
+
+        # 4. Register User 3 (Normal developer)
+        u3_res = await ac.post("/api/auth/register", json={
+            "email": "developer@test.com",
+            "name": "Dev User",
+            "password": "Password123!",
+            "invite_code": invite_code
+        })
+        assert u3_res.status_code == 200, u3_res.text
+        u3_token = u3_res.json()["access_token"]
+        u3_headers = {"Authorization": f"Bearer {u3_token}"}
+
+        # 5. User 1 registers as validator of repo "https://github.com/company/shared-service"
+        rv1_res = await ac.post("/api/repo-validators", json={
+            "repo_url": "https://github.com/company/shared-service",
+            "github_token": "ghp_TOKEN_ALPHA_12345",
+            "default_branch": "main",
+            "name": "Shared Service"
+        }, headers=u1_headers)
+        assert rv1_res.status_code == 200, rv1_res.text
+        rv1_data = rv1_res.json()
+        rv1_id = rv1_data["id"]
+        assert rv1_data["repo_url"] == "https://github.com/company/shared-service"
+        assert rv1_data["has_github_token"] is True
+        assert rv1_data["user_id"] == u1_id
+
+        # Check /api/auth/me for User 1 shows is_project_validator=True and validated_repos_count=1
+        me_res = await ac.get("/api/auth/me", headers=u1_headers)
+        assert me_res.status_code == 200
+        assert me_res.json()["is_project_validator"] is True
+        assert me_res.json()["validated_repos_count"] == 1
+
+        # 6. User 2 also registers as validator of the SAME repo with their own token
+        rv2_res = await ac.post("/api/repo-validators", json={
+            "repo_url": "https://github.com/company/shared-service",
+            "github_token": "ghp_TOKEN_BETA_67890",
+            "default_branch": "main",
+            "name": "Shared Service (Beta)"
+        }, headers=u2_headers)
+        assert rv2_res.status_code == 200, rv2_res.text
+        rv2_data = rv2_res.json()
+        rv2_id = rv2_data["id"]
+        assert rv2_id != rv1_id
+        assert rv2_data["user_id"] == u2_id
+
+        # 7. Check targets endpoint
+        targets_res = await ac.get("/api/repo-validators/targets", headers=u3_headers)
+        assert targets_res.status_code == 200
+        targets = targets_res.json()
+        assert len(targets) >= 2
+        t1 = next((t for t in targets if t["id"] == rv1_id), None)
+        t2 = next((t for t in targets if t["id"] == rv2_id), None)
+        assert t1 is not None and t2 is not None
+        assert "Validator Alpha" in t1["display_label"]
+        assert "Validator Beta" in t2["display_label"]
+
+        # 8. User 3 submits prompt specifically choosing Validator Alpha (rv1_id)
+        prompt_res = await ac.post("/api/prompts", json={
+            "repo_validator_id": rv1_id,
+            "prompt": "Implementar middleware de logging en FastAPI"
+        }, headers=u3_headers)
+        assert prompt_res.status_code == 200, prompt_res.text
+        task_data = prompt_res.json()
+        task_id = task_data["id"]
+        assert task_data["repo_validator_id"] == rv1_id
+        assert task_data["assigned_validator_id"] == u1_id
+        assert task_data["assigned_validator_name"] == "Validator Alpha"
+        assert task_data["repo_url"] == "https://github.com/company/shared-service"
+
+        # 9. Strict isolation checks:
+        # Validator Beta (User 2) must NOT see task in their validation list
+        u2_list = await ac.get("/api/validation/tasks", headers=u2_headers)
+        assert u2_list.status_code == 200
+        u2_task_ids = [t["id"] for t in u2_list.json()]
+        assert task_id not in u2_task_ids
+
+        # Validator Beta attempts to approve Validator Alpha's task -> 403 Forbidden
+        u2_approve_res = await ac.post(f"/api/validation/tasks/{task_id}/approve", headers=u2_headers)
+        assert u2_approve_res.status_code == 403
+        assert "No tienes permiso" in u2_approve_res.json()["detail"]
+
+        # Validator Alpha (User 1) DOES see the task
+        u1_list = await ac.get("/api/validation/tasks", headers=u1_headers)
+        assert u1_list.status_code == 200
+        u1_task_ids = [t["id"] for t in u1_list.json()]
+        assert task_id in u1_task_ids
+
+        # Validator Alpha approves the prompt
+        u1_approve_res = await ac.post(f"/api/validation/tasks/{task_id}/approve", headers=u1_headers)
+        assert u1_approve_res.status_code == 200
+        assert u1_approve_res.json()["status"] in ["APPROVED", "RUNNING"]
+
+        # Simulate plan generation
+        async with TestingSessionLocal() as session:
+            from app.models.prompt_task import PromptTask
+            from sqlalchemy import select
+            q = await session.execute(select(PromptTask).where(PromptTask.id == task_id))
+            t = q.scalars().first()
+            t.status = "PLAN_PENDING"
+            t.plan_content = "## Plan Técnico\n- app/middleware.py"
+            await session.commit()
+
+        # Validator Beta attempts to approve the plan -> 403 Forbidden
+        u2_plan_approve = await ac.post(f"/api/validation/tasks/{task_id}/approve-plan", headers=u2_headers)
+        assert u2_plan_approve.status_code == 403
+
+        # Validator Alpha approves the plan -> 200 OK
+        u1_plan_approve = await ac.post(f"/api/validation/tasks/{task_id}/approve-plan", headers=u1_headers)
+        assert u1_plan_approve.status_code == 200
+        assert u1_plan_approve.json()["status"] in ["PLAN_APPROVED", "RUNNING", "COMPLETED"]
+
+        # 10. Admin has super-access to see and manage all tasks
+        admin_list = await ac.get("/api/validation/tasks", headers=admin_headers)
+        assert admin_list.status_code == 200
+        admin_task_ids = [t["id"] for t in admin_list.json()]
+        assert task_id in admin_task_ids
+
+        # 11. User 1 deletes their repo validator registration
+        del_res = await ac.delete(f"/api/repo-validators/{rv1_id}", headers=u1_headers)
+        assert del_res.status_code == 200
+
+        # User 1's /my list is now empty
+        my_repos = await ac.get("/api/repo-validators/my", headers=u1_headers)
+        assert my_repos.status_code == 200
+        assert len(my_repos.json()) == 0
+
+
+@pytest.mark.asyncio
+async def test_alembic_migration_schema():
+    """Verify that Alembic configuration and migration script can load metadata correctly."""
+    import os
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    from alembic.migration import MigrationContext
+
+    # Check alembic.ini exists
+    assert os.path.exists("alembic.ini")
+    cfg = Config("alembic.ini")
+    script = ScriptDirectory.from_config(cfg)
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert heads[0] == "0001_repo_val"
+
+    # Check migration revision head details
+    head_revision = script.get_revision(heads[0])
+    assert "create repo_validators and task links" in head_revision.doc
+
+
+

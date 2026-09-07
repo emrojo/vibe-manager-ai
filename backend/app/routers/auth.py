@@ -166,5 +166,29 @@ async def login(
     )
 
 @router.get("/me", response_model=UserRead)
-async def get_me(current_user: User = Depends(get_current_user)):
-    return current_user
+async def get_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.models.repo_validator import RepoValidator
+    from sqlalchemy import func
+
+    count_res = await db.execute(
+        select(func.count(RepoValidator.id))
+        .where(RepoValidator.user_id == current_user.id)
+        .where(RepoValidator.is_active == True)
+    )
+    val_count = count_res.scalar_one() or 0
+
+    return UserRead(
+        id=current_user.id,
+        email=current_user.email,
+        name=current_user.name,
+        role=current_user.role,
+        is_active=current_user.is_active,
+        is_banned=current_user.is_banned,
+        is_admin=(current_user.role == "admin"),
+        is_project_validator=(val_count > 0),
+        validated_repos_count=val_count,
+        created_at=current_user.created_at
+    )

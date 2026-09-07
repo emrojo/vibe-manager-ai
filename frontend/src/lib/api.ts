@@ -4,9 +4,12 @@ export interface User {
   id: number;
   email: string;
   name: string;
-  role: "admin" | "validator" | "user";
+  role: string;
   is_active: boolean;
   is_banned: boolean;
+  is_admin?: boolean;
+  is_project_validator?: boolean;
+  validated_repos_count?: number;
   created_at: string;
 }
 
@@ -22,10 +25,49 @@ export interface Project {
   created_at: string;
 }
 
+export interface RepoValidator {
+  id: number;
+  repo_url: string;
+  repo_name: string;
+  default_branch: string;
+  user_id: number;
+  validator_name?: string;
+  validator_email?: string;
+  project_id?: number;
+  is_active: boolean;
+  has_github_token: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RepoTargetOption {
+  id: number; // repo_validator_id (0 for legacy project)
+  project_id: number;
+  repo_url: string;
+  repo_name: string;
+  default_branch: string;
+  validator_id: number;
+  validator_name: string;
+  validator_email: string;
+  display_label: string;
+}
+
+export interface RepoValidatorCreate {
+  repo_url: string;
+  github_token: string;
+  default_branch?: string;
+  name?: string;
+}
+
 export interface PromptTask {
   id: number;
   project_id: number;
   project_name?: string;
+  repo_url?: string;
+  repo_validator_id?: number;
+  assigned_validator_id?: number;
+  assigned_validator_name?: string;
+  assigned_validator_email?: string;
   user_id: number;
   user_name?: string;
   user_email?: string;

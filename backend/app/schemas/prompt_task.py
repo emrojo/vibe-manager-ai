@@ -17,7 +17,8 @@ def sanitize_prompt_text(v: str) -> str:
     return cleaned
 
 class PromptTaskCreate(BaseModel):
-    project_id: int
+    project_id: Optional[int] = None
+    repo_validator_id: Optional[int] = None
     prompt: str = Field(..., min_length=5, max_length=4000)
 
     @field_validator("prompt")
@@ -43,6 +44,11 @@ class PromptTaskRead(BaseModel):
     id: int
     project_id: int
     project_name: Optional[str] = None
+    repo_url: Optional[str] = None
+    repo_validator_id: Optional[int] = None
+    assigned_validator_id: Optional[int] = None
+    assigned_validator_name: Optional[str] = None
+    assigned_validator_email: Optional[str] = None
     user_id: int
     user_name: Optional[str] = None
     user_email: Optional[str] = None

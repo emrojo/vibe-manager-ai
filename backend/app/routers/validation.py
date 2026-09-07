@@ -1,11 +1,11 @@
 import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.auth import get_current_user, require_roles
+from app.auth import get_current_user, require_project_validator_or_admin
 from app.database import get_db
 from app.models.prompt_task import PromptTask
 from app.models.user import User
@@ -16,12 +16,37 @@ from app.services.queue_worker import enqueue_prompt_task
 router = APIRouter(
     prefix="/validation",
     tags=["validation"],
-    dependencies=[Depends(require_roles(["validator", "admin"]))]
+    dependencies=[Depends(require_project_validator_or_admin)]
 )
+
+async def get_task_for_validation(task_id: int, current_user: User, db: AsyncSession) -> PromptTask:
+    result = await db.execute(
+        select(PromptTask)
+        .options(
+            selectinload(PromptTask.project),
+            selectinload(PromptTask.user),
+            selectinload(PromptTask.validator),
+            selectinload(PromptTask.assigned_validator),
+            selectinload(PromptTask.plan_validator),
+            selectinload(PromptTask.repo_validator)
+        )
+        .where(PromptTask.id == task_id)
+    )
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+
+    if current_user.role != "admin" and task.assigned_validator_id and task.assigned_validator_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para validar esta tarea. Solo el validador asignado al repositorio o un administrador pueden validarla."
+        )
+    return task
 
 @router.get("/tasks", response_model=List[PromptTaskRead])
 async def list_validation_tasks(
     status_filter: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     query = (
@@ -30,10 +55,23 @@ async def list_validation_tasks(
             selectinload(PromptTask.project),
             selectinload(PromptTask.user),
             selectinload(PromptTask.validator),
-            selectinload(PromptTask.plan_validator)
+            selectinload(PromptTask.assigned_validator),
+            selectinload(PromptTask.plan_validator),
+            selectinload(PromptTask.repo_validator)
         )
         .order_by(PromptTask.created_at.desc())
     )
+
+    if current_user.role != "admin":
+        query = query.where(
+            or_(
+                PromptTask.assigned_validator_id == current_user.id,
+                PromptTask.assigned_validator_id.is_(None),
+                PromptTask.validated_by_id == current_user.id,
+                PromptTask.plan_validated_by_id == current_user.id
+            )
+        )
+
     if status_filter:
         query = query.where(PromptTask.status == status_filter.upper())
 
@@ -48,14 +86,7 @@ async def edit_task_prompt(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(
-        select(PromptTask)
-        .options(selectinload(PromptTask.project), selectinload(PromptTask.user), selectinload(PromptTask.validator))
-        .where(PromptTask.id == task_id)
-    )
-    task = result.scalars().first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    task = await get_task_for_validation(task_id, current_user, db)
 
     if task.status not in ["PENDING", "REJECTED"]:
         raise HTTPException(status_code=400, detail="Solo se pueden editar prompts pendientes o rechazados")
@@ -71,14 +102,7 @@ async def approve_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(
-        select(PromptTask)
-        .options(selectinload(PromptTask.project), selectinload(PromptTask.user), selectinload(PromptTask.validator))
-        .where(PromptTask.id == task_id)
-    )
-    task = result.scalars().first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    task = await get_task_for_validation(task_id, current_user, db)
 
     if task.status in ["RUNNING", "COMPLETED"]:
         raise HTTPException(status_code=400, detail="La tarea ya fue procesada o está en ejecución")
@@ -103,14 +127,7 @@ async def reject_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(
-        select(PromptTask)
-        .options(selectinload(PromptTask.project), selectinload(PromptTask.user), selectinload(PromptTask.validator))
-        .where(PromptTask.id == task_id)
-    )
-    task = result.scalars().first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    task = await get_task_for_validation(task_id, current_user, db)
 
     task.status = "REJECTED"
     task.rejection_reason = payload.rejection_reason.strip()
@@ -127,19 +144,7 @@ async def approve_task_plan(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(
-        select(PromptTask)
-        .options(
-            selectinload(PromptTask.project),
-            selectinload(PromptTask.user),
-            selectinload(PromptTask.validator),
-            selectinload(PromptTask.plan_validator)
-        )
-        .where(PromptTask.id == task_id)
-    )
-    task = result.scalars().first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    task = await get_task_for_validation(task_id, current_user, db)
 
     if task.status != "PLAN_PENDING":
         raise HTTPException(status_code=400, detail="Solo se pueden aprobar tareas en estado 'PLAN_PENDING'")
@@ -164,19 +169,7 @@ async def reject_task_plan(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(
-        select(PromptTask)
-        .options(
-            selectinload(PromptTask.project),
-            selectinload(PromptTask.user),
-            selectinload(PromptTask.validator),
-            selectinload(PromptTask.plan_validator)
-        )
-        .where(PromptTask.id == task_id)
-    )
-    task = result.scalars().first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    task = await get_task_for_validation(task_id, current_user, db)
 
     if task.status != "PLAN_PENDING":
         raise HTTPException(status_code=400, detail="Solo se pueden rechazar tareas en estado 'PLAN_PENDING'")
@@ -198,19 +191,7 @@ async def retry_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(
-        select(PromptTask)
-        .options(
-            selectinload(PromptTask.project),
-            selectinload(PromptTask.user),
-            selectinload(PromptTask.validator),
-            selectinload(PromptTask.plan_validator)
-        )
-        .where(PromptTask.id == task_id)
-    )
-    task = result.scalars().first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+    task = await get_task_for_validation(task_id, current_user, db)
 
     if task.plan_content and task.plan_validated_at and not task.plan_rejection_reason:
         task.status = "PLAN_APPROVED"

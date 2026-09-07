@@ -47,9 +47,11 @@ def build_invitation_response(inv: Invitation) -> InvitationRead:
 
 @router.get("/stats")
 async def get_admin_stats(db: AsyncSession = Depends(get_db)):
+    from app.models.repo_validator import RepoValidator
     users_total = (await db.execute(select(func.count(User.id)))).scalar() or 0
     users_banned = (await db.execute(select(func.count(User.id)).where(User.is_banned == True))).scalar() or 0
-    validators = (await db.execute(select(func.count(User.id)).where(User.role == "validator"))).scalar() or 0
+    project_validators = (await db.execute(select(func.count(func.distinct(RepoValidator.user_id))))).scalar() or 0
+    active_repo_validators = (await db.execute(select(func.count(RepoValidator.id)).where(RepoValidator.is_active == True))).scalar() or 0
     
     prompts_total = (await db.execute(select(func.count(PromptTask.id)))).scalar() or 0
     prompts_pending = (await db.execute(select(func.count(PromptTask.id)).where(PromptTask.status == "PENDING"))).scalar() or 0
@@ -62,7 +64,8 @@ async def get_admin_stats(db: AsyncSession = Depends(get_db)):
         "users": {
             "total": users_total,
             "banned": users_banned,
-            "validators": validators
+            "validators": project_validators,
+            "repo_validators": active_repo_validators
         },
         "prompts": {
             "total": prompts_total,

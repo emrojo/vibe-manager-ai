@@ -21,6 +21,10 @@ class PromptTask(Base):
     # Validation info
     validated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     validated_at = Column(DateTime, nullable=True)
+
+    # Repository Validator & Assignment
+    repo_validator_id = Column(Integer, ForeignKey("repo_validators.id"), nullable=True)
+    assigned_validator_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     
     # Execution & GitHub info
     branch_name = Column(String(255), nullable=True)
@@ -44,3 +48,5 @@ class PromptTask(Base):
     user = relationship("User", foreign_keys=[user_id], back_populates="prompts")
     validator = relationship("User", foreign_keys=[validated_by_id])
     plan_validator = relationship("User", foreign_keys=[plan_validated_by_id])
+    repo_validator = relationship("RepoValidator", back_populates="tasks")
+    assigned_validator = relationship("User", foreign_keys=[assigned_validator_id])

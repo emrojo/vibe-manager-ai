@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import logging
 from contextlib import asynccontextmanager
@@ -8,15 +9,18 @@ from sqlalchemy import select, text
 from app.config import settings
 from app.database import engine, Base, AsyncSessionLocal
 from app.auth import get_password_hash
+import os
 from app.models.user import User
 from app.models.project import Project
 from app.models.invitation import Invitation
+from app.models.repo_validator import RepoValidator
 
 from app.routers.auth import router as auth_router
 from app.routers.admin import router as admin_router
 from app.routers.projects import router as projects_router
 from app.routers.prompts import router as prompts_router
 from app.routers.validation import router as validation_router
+from app.routers.repo_validators import router as repo_validators_router
 from app.routers.chat import router as chat_router
 from app.routers.processes import router as processes_router
 from app.services.db_migrator import auto_migrate_sqlite_to_pg
@@ -27,6 +31,27 @@ logger = logging.getLogger("vibe_app")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Inicializando base de datos y esquemas...")
+
+    # 1. Execute Alembic migrations if available
+    try:
+        alembic_ini_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../alembic.ini"))
+        if os.path.exists(alembic_ini_path):
+            import subprocess
+            proc = await asyncio.create_subprocess_exec(
+                "alembic", "upgrade", "head",
+                cwd=os.path.dirname(alembic_ini_path),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                logger.info("Migraciones de Alembic ejecutadas y al día.")
+            else:
+                logger.warning(f"Aviso ejecutando Alembic: {stderr.decode()}")
+    except Exception as e:
+        logger.warning(f"Aviso ejecutando Alembic en arranque: {e}")
+
+    # 2. Synchronize schemas & safety fallbacks
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         try:
@@ -36,6 +61,8 @@ async def lifespan(app: FastAPI):
             await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS plan_validated_by_id INTEGER;"))
             await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS plan_validated_at TIMESTAMP;"))
             await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS plan_rejection_reason TEXT;"))
+            await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS repo_validator_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS assigned_validator_id INTEGER;"))
         except Exception as e:
             logger.debug(f"Schema column check: {e}")
 
@@ -119,6 +146,7 @@ app.include_router(admin_router, prefix=settings.API_V1_STR)
 app.include_router(projects_router, prefix=settings.API_V1_STR)
 app.include_router(prompts_router, prefix=settings.API_V1_STR)
 app.include_router(validation_router, prefix=settings.API_V1_STR)
+app.include_router(repo_validators_router, prefix=settings.API_V1_STR)
 app.include_router(chat_router, prefix=settings.API_V1_STR)
 app.include_router(processes_router, prefix=settings.API_V1_STR)
 

@@ -25,7 +25,11 @@ async def process_prompt_task(task_id: int):
         # Mark as RUNNING
         res = await db.execute(
             select(PromptTask)
-            .options(selectinload(PromptTask.project), selectinload(PromptTask.user))
+            .options(
+                selectinload(PromptTask.project),
+                selectinload(PromptTask.user),
+                selectinload(PromptTask.repo_validator)
+            )
             .where(PromptTask.id == task_id)
         )
         task = res.scalars().first()
@@ -58,9 +62,17 @@ async def process_prompt_task(task_id: int):
         project_name = project.name
         user_name = task.user.name if task.user else "Usuario"
         prompt_text = task.edited_prompt if task.edited_prompt else task.original_prompt
-        repo_url = project.repo_url
-        github_token = project.github_token or settings.GITHUB_TOKEN
-        default_branch = project.default_branch or "main"
+        repo_url = task.repo_validator.repo_url if task.repo_validator else project.repo_url
+        github_token = (
+            (task.repo_validator.github_token if task.repo_validator and task.repo_validator.github_token else None)
+            or project.github_token
+            or settings.GITHUB_TOKEN
+        )
+        default_branch = (
+            (task.repo_validator.default_branch if task.repo_validator and task.repo_validator.default_branch else None)
+            or project.default_branch
+            or "main"
+        )
         project_rules = project.system_prompt_rules
 
     # Start task tracking in stream manager

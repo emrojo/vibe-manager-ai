@@ -20,3 +20,4 @@ class User(Base):
     prompts = relationship("PromptTask", back_populates="user", foreign_keys="PromptTask.user_id")
     sent_messages = relationship("ChatMessage", back_populates="sender", foreign_keys="ChatMessage.sender_id")
     received_messages = relationship("ChatMessage", back_populates="recipient", foreign_keys="ChatMessage.recipient_id")
+    validator_repos = relationship("RepoValidator", back_populates="validator", cascade="all, delete-orphan")

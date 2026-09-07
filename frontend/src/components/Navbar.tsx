@@ -21,7 +21,7 @@ export default function Navbar() {
 
   if (!user) return null;
 
-  const isValidatorOrAdmin = user.role === "validator" || user.role === "admin";
+  const isValidatorOrAdmin = user.role === "admin" || (user.validated_repos_count ?? 0) > 0 || Boolean(user.is_project_validator);
   const isAdmin = user.role === "admin";
 
   const navLinks = [
@@ -32,6 +32,17 @@ export default function Navbar() {
     ...(isAdmin ? [{ href: "/admin", label: "Administración", icon: ShieldAlert }] : []),
     { href: "/chat", label: "Chat", icon: MessageSquare },
   ];
+
+  let badgeLabel = "Usuario";
+  let badgeClass = "bg-blue-500/10 text-blue-400 border border-blue-500/20";
+  if (user.role === "admin") {
+    badgeLabel = "Admin";
+    badgeClass = "bg-purple-500/10 text-purple-400 border border-purple-500/20";
+  } else if ((user.validated_repos_count ?? 0) > 0) {
+    const count = user.validated_repos_count || 1;
+    badgeLabel = `Validador (${count} ${count === 1 ? "repo" : "repos"})`;
+    badgeClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
+  }
 
   return (
     <header className="sticky top-0 z-50 bg-slate-900/80 backdrop-blur-md border-b border-slate-800">
@@ -82,15 +93,9 @@ export default function Navbar() {
             <span className="text-sm font-medium text-slate-200">{user.name}</span>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span
-                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                  user.role === "admin"
-                    ? "bg-purple-500/10 text-purple-400 border border-purple-500/20"
-                    : user.role === "validator"
-                    ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                    : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                }`}
+                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider ${badgeClass}`}
               >
-                {user.role === "admin" ? "Admin" : user.role === "validator" ? "Validador" : "Usuario"}
+                {badgeLabel}
               </span>
             </div>
           </div>

@@ -78,3 +78,25 @@ def require_roles(allowed_roles: List[str]):
             )
         return current_user
     return role_checker
+
+async def require_project_validator_or_admin(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> User:
+    if current_user.role in ("admin", "validator"):
+        return current_user
+
+    from app.models.repo_validator import RepoValidator
+    res = await db.execute(
+        select(RepoValidator.id).where(
+            RepoValidator.user_id == current_user.id,
+            RepoValidator.is_active == True
+        ).limit(1)
+    )
+    if res.scalars().first():
+        return current_user
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Acceso restringido: No estás registrado como validador de ningún proyecto ni eres administrador."
+    )

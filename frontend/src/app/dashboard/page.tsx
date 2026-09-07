@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
-import { apiRequest, Project, PromptTask } from "@/lib/api";
+import { apiRequest, Project, PromptTask, RepoTargetOption } from "@/lib/api";
 import { 
   Send, 
   FolderGit2, 
@@ -20,17 +20,21 @@ import {
   AlertCircle,
   Square,
   FileCode2,
-  FileText
+  FileText,
+  ShieldCheck,
+  Plus,
+  X,
+  KeyRound
 } from "lucide-react";
 import LiveConsoleModal from "@/components/LiveConsoleModal";
 import UserPlanModal from "@/components/UserPlanModal";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, refreshUser } = useAuth();
 
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<number | "">("");
+  const [targets, setTargets] = useState<RepoTargetOption[]>([]);
+  const [selectedTargetKey, setSelectedTargetKey] = useState<string>("");
   const [promptText, setPromptText] = useState("");
   const [myPrompts, setMyPrompts] = useState<PromptTask[]>([]);
   
@@ -41,24 +45,33 @@ export default function DashboardPage() {
   const [filterPlanOnly, setFilterPlanOnly] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
+  // Modal for registering as validator for a repo
+  const [showValidatorModal, setShowValidatorModal] = useState(false);
+  const [valRepoUrl, setValRepoUrl] = useState("");
+  const [valGithubToken, setValGithubToken] = useState("");
+  const [valBranch, setValBranch] = useState("main");
+  const [valRepoName, setValRepoName] = useState("");
+  const [valSaving, setValSaving] = useState(false);
+  const [valError, setValError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/login");
     }
   }, [user, authLoading, router]);
 
-  const loadProjects = async () => {
+  const loadTargets = async () => {
     try {
-      const projs = await apiRequest<Project[]>("/projects");
-      setProjects(projs);
-      setSelectedProjectId((prev) => {
-        if (prev !== "" && projs.some((p) => p.id === prev)) {
+      const data = await apiRequest<RepoTargetOption[]>("/repo-validators/targets");
+      setTargets(data);
+      setSelectedTargetKey((prev) => {
+        if (prev && data.some((t) => `${t.id}_${t.project_id}` === prev)) {
           return prev;
         }
-        return projs.length > 0 ? projs[0].id : "";
+        return data.length > 0 ? `${data[0].id}_${data[0].project_id}` : "";
       });
     } catch (err: any) {
-      console.error("Error cargando proyectos:", err);
+      console.error("Error cargando objetivos de repositorio:", err);
     }
   };
 
@@ -76,7 +89,7 @@ export default function DashboardPage() {
     if (!user) return;
     setRefreshing(true);
     try {
-      await Promise.all([loadProjects(), loadPrompts()]);
+      await Promise.all([loadTargets(), loadPrompts()]);
     } catch (err: any) {
       console.error("Error cargando datos:", err);
     } finally {
@@ -87,14 +100,17 @@ export default function DashboardPage() {
   useEffect(() => {
     if (user) {
       loadData();
-      const interval = setInterval(loadPrompts, 10000); // Polling only prompts every 10s
+      const interval = setInterval(loadPrompts, 10000);
       return () => clearInterval(interval);
     }
   }, [user]);
 
   const handleSubmitPrompt = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedProjectId || !promptText.trim()) return;
+    if (!selectedTargetKey || !promptText.trim()) return;
+
+    const selectedTarget = targets.find((t) => `${t.id}_${t.project_id}` === selectedTargetKey);
+    if (!selectedTarget) return;
 
     setSubmitting(true);
     setMessage(null);
@@ -103,17 +119,18 @@ export default function DashboardPage() {
       await apiRequest<PromptTask>("/prompts", {
         method: "POST",
         body: JSON.stringify({
-          project_id: Number(selectedProjectId),
+          repo_validator_id: selectedTarget.id > 0 ? selectedTarget.id : undefined,
+          project_id: selectedTarget.project_id,
           prompt: promptText.trim(),
         }),
       });
 
       setMessage({
         type: "success",
-        text: "¡Prompt enviado con éxito! Ha quedado en la cola de revisión para los validadores.",
+        text: `¡Prompt enviado con éxito! Asignado al validador ${selectedTarget.validator_name} para su revisión.`,
       });
       setPromptText("");
-      await loadData();
+      await loadPrompts();
     } catch (err: any) {
       setMessage({
         type: "error",
@@ -121,6 +138,37 @@ export default function DashboardPage() {
       });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleRegisterValidator = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setValSaving(true);
+    setValError(null);
+    try {
+      await apiRequest("/repo-validators", {
+        method: "POST",
+        body: JSON.stringify({
+          repo_url: valRepoUrl.trim(),
+          github_token: valGithubToken.trim(),
+          default_branch: valBranch.trim() || "main",
+          name: valRepoName.trim() || undefined
+        })
+      });
+      await refreshUser();
+      await loadTargets();
+      setShowValidatorModal(false);
+      setValRepoUrl("");
+      setValGithubToken("");
+      setValRepoName("");
+      setMessage({
+        type: "success",
+        text: "¡Te has registrado como validador para el repositorio! Ya puedes validar prompts y planes asignados a dicho repositorio."
+      });
+    } catch (err: any) {
+      setValError(err.message || "Error al registrarse como validador.");
+    } finally {
+      setValSaving(false);
     }
   };
 
@@ -138,8 +186,6 @@ export default function DashboardPage() {
       setCancellingId(null);
     }
   };
-
-  const selectedProject = projects.find((p) => p.id === Number(selectedProjectId));
 
   const getStatusBadge = (status: PromptTask["status"]) => {
     switch (status) {
@@ -249,26 +295,43 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Project Selector */}
+          {/* Target Selector */}
           <div>
-            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              1. Selecciona el Proyecto Web Objetivo
-            </label>
-            {projects.length === 0 ? (
-              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 text-sm">
-                No hay proyectos configurados en este momento. Solicita al Administrador que agregue un repositorio.
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                1. Selecciona el Repositorio Objetivo y su Validador
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowValidatorModal(true)}
+                className="self-start sm:self-auto text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 font-medium transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 px-2.5 py-1 rounded-lg border border-indigo-500/20"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+                <span>+ Darme de alta como Validador de un Repositorio</span>
+              </button>
+            </div>
+            {targets.length === 0 ? (
+              <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <span>No hay repositorios con validador disponibles. Puedes darte de alta como validador de tu propio repositorio de GitHub.</span>
+                <button
+                  type="button"
+                  onClick={() => setShowValidatorModal(true)}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all shrink-0"
+                >
+                  Registrar mi Repositorio
+                </button>
               </div>
             ) : (
               <div className="relative">
                 <FolderGit2 className="w-5 h-5 text-indigo-400 absolute left-3.5 top-3.5 pointer-events-none" />
                 <select
-                  value={selectedProjectId}
-                  onChange={(e) => setSelectedProjectId(Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-11 pr-10 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all appearance-none cursor-pointer"
+                  value={selectedTargetKey}
+                  onChange={(e) => setSelectedTargetKey(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-11 pr-10 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all appearance-none cursor-pointer font-sans"
                 >
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id} className="bg-slate-900 text-white">
-                      {p.name} ({p.repo_url})
+                  {targets.map((t) => (
+                    <option key={`${t.id}_${t.project_id}`} value={`${t.id}_${t.project_id}`} className="bg-slate-900 text-white">
+                      {t.display_label}
                     </option>
                   ))}
                 </select>
@@ -280,12 +343,17 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {selectedProject && (
-              <div className="mt-2 text-xs text-slate-400 flex items-center gap-2">
-                <span className="text-indigo-400 font-mono">Rama: {selectedProject.default_branch}</span>
-                {selectedProject.description && <span>• {selectedProject.description}</span>}
-              </div>
-            )}
+            {(() => {
+              const currentT = targets.find((t) => `${t.id}_${t.project_id}` === selectedTargetKey);
+              if (!currentT) return null;
+              return (
+                <div className="mt-2 text-xs text-slate-400 flex flex-wrap items-center gap-x-4 gap-y-1">
+                  <span className="text-indigo-400 font-mono">Rama: {currentT.default_branch}</span>
+                  <span className="text-amber-400">Validador asignado: {currentT.validator_name}</span>
+                  <span className="text-slate-500 font-mono">{currentT.repo_url}</span>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Prompt Textarea */}
@@ -312,7 +380,7 @@ export default function DashboardPage() {
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={submitting || projects.length === 0 || !promptText.trim()}
+              disabled={submitting || targets.length === 0 || !promptText.trim()}
               className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium px-6 py-3 rounded-xl shadow-lg shadow-indigo-600/25 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (
@@ -537,6 +605,123 @@ export default function DashboardPage() {
           task={selectedTaskLogs}
           onClose={() => setSelectedTaskLogs(null)}
         />
+      )}
+
+      {/* Modal: Register as repo validator */}
+      {showValidatorModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2 text-white font-bold text-base">
+                <ShieldCheck className="w-5 h-5 text-indigo-400" />
+                <span>Alta como Validador de Repositorio GitHub</span>
+              </div>
+              <button
+                onClick={() => setShowValidatorModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {valError && (
+              <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>{valError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleRegisterValidator} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1 uppercase tracking-wider">
+                  URL del Repositorio GitHub *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="https://github.com/mi-usuario/mi-repositorio"
+                  value={valRepoUrl}
+                  onChange={(e) => setValRepoUrl(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all font-mono"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Cualquier usuario podrá elegir este repositorio y asignarte a ti la validación de sus prompts.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1 uppercase tracking-wider">
+                  Token de GitHub (Personal Access Token) *
+                </label>
+                <input
+                  type="password"
+                  required
+                  placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                  value={valGithubToken}
+                  onChange={(e) => setValGithubToken(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all font-mono"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Se requiere permiso de escritura en el repositorio (contents y pull-requests) para crear ramas y abrir PRs cuando apruebes el plan.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1 uppercase tracking-wider">
+                    Rama Base (Default)
+                  </label>
+                  <input
+                    type="text"
+                    value={valBranch}
+                    onChange={(e) => setValBranch(e.target.value)}
+                    placeholder="main"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1 uppercase tracking-wider">
+                    Nombre Descriptivo
+                  </label>
+                  <input
+                    type="text"
+                    value={valRepoName}
+                    onChange={(e) => setValRepoName(e.target.value)}
+                    placeholder="Opcional (ej. Mi Portal Web)"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowValidatorModal(false)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={valSaving}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-indigo-600/20 disabled:opacity-50 transition-all cursor-pointer"
+                >
+                  {valSaving ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Confirmar Alta como Validador</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
