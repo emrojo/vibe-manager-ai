@@ -254,19 +254,61 @@ if [ "$DOMAIN_NAME" != "localhost" ]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 4. Build Sandbox Runner Image
+# 4. GHCR Login (for pulling pre-built production images)
 # ------------------------------------------------------------------------------
-log_info "Construyendo la imagen aislada del runner sandbox (vibe-runner:latest)..."
-export DOCKER_BUILDKIT=1
-(cd "${PROJECT_DIR}" && $DOCKER_CMD build -t vibe-runner:latest ./runner)
-log_success "Imagen vibe-runner:latest construida correctamente."
+echo ""
+log_info "Para desplegar usando imágenes pre-compiladas de GHCR (GitHub Container Registry),"
+log_info "necesitas un Personal Access Token (PAT) de GitHub con permiso 'read:packages'."
+log_info "Créalo en: https://github.com/settings/tokens → Fine-grained tokens → read:packages"
+echo ""
+read -rp "Introduce tu GHCR_PAT de GitHub (o pulsa Enter para construir las imágenes localmente): " GHCR_PAT_INPUT
+GHCR_USER_INPUT=""
+
+USE_GHCR=false
+if [ -n "$GHCR_PAT_INPUT" ]; then
+    read -rp "Introduce tu nombre de usuario de GitHub (para login en GHCR): " GHCR_USER_INPUT
+    if echo "$GHCR_PAT_INPUT" | $DOCKER_CMD login ghcr.io -u "$GHCR_USER_INPUT" --password-stdin; then
+        log_success "Login en GHCR correcto. Se usarán imágenes pre-compiladas."
+        USE_GHCR=true
+        # Persist GHCR credentials in Docker credential store for future pulls (systemd restarts, etc.)
+        log_info "Las credenciales de GHCR quedan guardadas en el keystore de Docker del sistema."
+    else
+        log_warn "Login en GHCR fallido. Se construirán las imágenes localmente."
+    fi
+fi
 
 # ------------------------------------------------------------------------------
-# 5. Build and Test Docker Compose Stack
+# 5. Pull or Build Images
 # ------------------------------------------------------------------------------
-log_info "Construyendo imágenes de producción (backend, frontend, gateway)..."
-(cd "${PROJECT_DIR}" && $DOCKER_CMD compose -f docker-compose.yml -f docker-compose.prod.yml build)
-log_success "Contenedores de producción compilados con éxito."
+export DOCKER_BUILDKIT=1
+
+if [ "$USE_GHCR" = true ]; then
+    log_info "Descargando imágenes de producción desde GHCR..."
+    (cd "${PROJECT_DIR}" && $DOCKER_CMD compose \
+        -f docker-compose.yml \
+        -f docker-compose.prod.yml \
+        -f docker-compose.ghcr.yml \
+        pull)
+    log_success "Imágenes descargadas correctamente desde GHCR."
+else
+    log_info "Construyendo imagen del runner sandbox (vibe-runner:latest)..."
+    (cd "${PROJECT_DIR}" && $DOCKER_CMD build -t vibe-runner:latest ./runner)
+    log_success "Imagen vibe-runner:latest construida correctamente."
+
+    log_info "Construyendo imágenes de producción (backend, frontend, gateway)..."
+    (cd "${PROJECT_DIR}" && $DOCKER_CMD compose \
+        -f docker-compose.yml \
+        -f docker-compose.prod.yml \
+        build)
+    log_success "Imágenes de producción compiladas con éxito."
+fi
+
+# Determine compose overlay for systemd
+if [ "$USE_GHCR" = true ]; then
+    COMPOSE_OVERLAY="-f docker-compose.ghcr.yml"
+else
+    COMPOSE_OVERLAY=""
+fi
 
 # ------------------------------------------------------------------------------
 # 6. Setup Systemd Service Unit
@@ -288,9 +330,9 @@ RemainAfterExit=yes
 WorkingDirectory=${PROJECT_DIR}
 
 # Start and Stop Compose Stack
-ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
-ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml down
-ExecReload=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml restart
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml ${COMPOSE_OVERLAY} up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml ${COMPOSE_OVERLAY} down
+ExecReload=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml ${COMPOSE_OVERLAY} restart
 
 TimeoutStartSec=300
 TimeoutStopSec=60

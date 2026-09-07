@@ -1,0 +1,38 @@
+# ============================================================================
+# Vibe Manager AI — GHCR Production Image Override
+# ============================================================================
+# This file overrides the `image:` tag for all services to point to pre-built
+# images stored in GitHub Container Registry (GHCR), bypassing local builds.
+#
+# Use this file in production together with docker-compose.prod.yml:
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.prod.yml \
+#     -f docker-compose.ghcr.yml \
+#     pull
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.prod.yml \
+#     -f docker-compose.ghcr.yml \
+#     up -d --remove-orphans
+#
+# NOTE: Do NOT use this file in local development. Use docker-compose.yml alone.
+# ============================================================================
+
+services:
+  backend:
+    image: ghcr.io/emrojo/vibe-manager-ai/backend:latest
+    # Tell the backend to use the GHCR-tagged runner image for on-demand sandboxes
+    environment:
+      - DOCKER_RUNNER_IMAGE=ghcr.io/emrojo/vibe-manager-ai/runner:latest
+
+  frontend:
+    image: ghcr.io/emrojo/vibe-manager-ai/frontend:latest
+
+  gateway:
+    image: ghcr.io/emrojo/vibe-manager-ai/gateway:latest
+
+  runner:
+    image: ghcr.io/emrojo/vibe-manager-ai/runner:latest

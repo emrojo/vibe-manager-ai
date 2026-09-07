@@ -1,0 +1,157 @@
+name: CI/CD — Build, Push to GHCR & Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Razón del deploy manual"
+        required: false
+        default: "Deploy manual"
+
+# Ensure only one deploy runs at a time
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  # e.g. ghcr.io/emrojo/vibe-manager-ai
+  IMAGE_BASE: ghcr.io/${{ github.repository }}
+
+jobs:
+  # ===========================================================================
+  # JOB 1: Build Docker images in parallel and push them to GHCR
+  # ===========================================================================
+  build-and-push:
+    name: "🏗️ Build & Push — ${{ matrix.service }}"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - service: backend
+            context: ./backend
+            dockerfile: ./backend/Dockerfile
+            build_args: ""
+
+          - service: frontend
+            context: ./frontend
+            dockerfile: ./frontend/Dockerfile
+            # NEXT_PUBLIC_* vars must be baked in at build time
+            build_args: "NEXT_PUBLIC_API_URL=/api"
+
+          - service: gateway
+            context: ./gateway
+            dockerfile: ./gateway/Dockerfile
+            build_args: ""
+
+          - service: runner
+            context: ./runner
+            dockerfile: ./runner/Dockerfile
+            build_args: ""
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_BASE }}/${{ matrix.service }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Separate cache scope per service for best hit rate
+          cache-from: type=gha,scope=build-${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=build-${{ matrix.service }}
+          build-args: ${{ matrix.build_args }}
+
+  # ===========================================================================
+  # JOB 2: Deploy to production via SSH once all images are ready
+  # ===========================================================================
+  deploy:
+    name: "🚀 Deploy to Production"
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    # Targets the 'production' GitHub Environment (for approval gates if needed)
+    environment: production
+
+    steps:
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          port: ${{ secrets.DEPLOY_SSH_PORT }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          # Pass GHCR credentials and metadata as env vars to the remote script
+          envs: GHCR_PAT,GHCR_ACTOR,GHCR_IMAGE_BASE,GIT_SHA
+          # Fail the job if any remote command exits with non-zero
+          script_stop: true
+          script: |
+            set -eo pipefail
+
+            echo "=== [1/5] Login to GHCR ==="
+            echo "$GHCR_PAT" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+
+            echo "=== [2/5] Updating compose files from origin/main ==="
+            cd "${{ secrets.DEPLOY_PROJECT_PATH }}"
+            git fetch --quiet origin main
+            # Only sync the compose files — never clobber the .env or volumes
+            git checkout origin/main -- \
+              docker-compose.yml \
+              docker-compose.prod.yml \
+              docker-compose.ghcr.yml
+
+            echo "=== [3/5] Pulling new images from GHCR (sha: $GIT_SHA) ==="
+            docker compose \
+              -f docker-compose.yml \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              pull
+
+            echo "=== [4/5] Restarting stack ==="
+            docker compose \
+              -f docker-compose.yml \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              up -d --remove-orphans
+
+            echo "=== [5/5] Cleanup dangling images ==="
+            docker image prune -f
+
+            echo ""
+            echo "✅ Deploy completed — sha: $GIT_SHA — $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+        env:
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_IMAGE_BASE: ${{ env.IMAGE_BASE }}
+          GIT_SHA: ${{ github.sha }}
