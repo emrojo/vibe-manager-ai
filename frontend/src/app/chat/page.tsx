@@ -46,8 +46,13 @@ function ChatContent() {
       const queryUserId = searchParams.get("userId");
       if (queryUserId) {
         setSelectedUserId(Number(queryUserId));
-      } else if (!selectedUserId && data.length > 0) {
-        setSelectedUserId(data[0].other_user_id);
+      } else {
+        setSelectedUserId((prev) => {
+          if (prev && data.some((t) => t.other_user_id === prev)) {
+            return prev;
+          }
+          return data.length > 0 ? data[0].other_user_id : null;
+        });
       }
     } catch (err) {
       console.error("Error cargando hilos de chat:", err);

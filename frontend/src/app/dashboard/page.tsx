@@ -41,19 +41,36 @@ export default function DashboardPage() {
     }
   }, [user, authLoading, router]);
 
+  const loadProjects = async () => {
+    try {
+      const projs = await apiRequest<Project[]>("/projects");
+      setProjects(projs);
+      setSelectedProjectId((prev) => {
+        if (prev !== "" && projs.some((p) => p.id === prev)) {
+          return prev;
+        }
+        return projs.length > 0 ? projs[0].id : "";
+      });
+    } catch (err: any) {
+      console.error("Error cargando proyectos:", err);
+    }
+  };
+
+  const loadPrompts = async () => {
+    if (!user) return;
+    try {
+      const prompts = await apiRequest<PromptTask[]>("/prompts/my");
+      setMyPrompts(prompts);
+    } catch (err: any) {
+      console.error("Error cargando prompts:", err);
+    }
+  };
+
   const loadData = async () => {
     if (!user) return;
     setRefreshing(true);
     try {
-      const [projs, prompts] = await Promise.all([
-        apiRequest<Project[]>("/projects"),
-        apiRequest<PromptTask[]>("/prompts/my"),
-      ]);
-      setProjects(projs);
-      if (projs.length > 0 && selectedProjectId === "") {
-        setSelectedProjectId(projs[0].id);
-      }
-      setMyPrompts(prompts);
+      await Promise.all([loadProjects(), loadPrompts()]);
     } catch (err: any) {
       console.error("Error cargando datos:", err);
     } finally {
@@ -64,7 +81,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (user) {
       loadData();
-      const interval = setInterval(loadData, 10000); // Polling every 10s
+      const interval = setInterval(loadPrompts, 10000); // Polling only prompts every 10s
       return () => clearInterval(interval);
     }
   }, [user]);
