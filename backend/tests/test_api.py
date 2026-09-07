@@ -348,3 +348,97 @@ async def test_two_stage_plan_validation():
         approve_plan_res = await ac.post(f"/api/validation/tasks/{task_id2}/approve-plan", headers=val_headers)
         assert approve_plan_res.status_code == 200
         assert approve_plan_res.json()["status"] in ["PLAN_APPROVED", "RUNNING", "COMPLETED"]
+
+@pytest.mark.asyncio
+async def test_security_protections():
+    from app.schemas.prompt_task import sanitize_prompt_text
+    from app.services.run_task import is_safe_repo_path
+    from app.services.docker_runner import mask_secrets
+
+    # 1. Test Prompt Sanitization & Length bounds
+    # Zero-width spaces and control characters stripped
+    dirty_prompt = "Crear\u200B \uFEFFlogin\x00 \x07seguro\x1F ahora"
+    cleaned = sanitize_prompt_text(dirty_prompt)
+    assert "\u200B" not in cleaned
+    assert "\uFEFF" not in cleaned
+    assert "\x00" not in cleaned
+    assert "\x07" not in cleaned
+    assert "\x1F" not in cleaned
+    assert cleaned == "Crear login seguro ahora"
+
+    # Too short (< 5 chars)
+    with pytest.raises(ValueError, match="al menos 5 caracteres"):
+        sanitize_prompt_text("abc")
+
+    # Too long (> 4000 chars)
+    with pytest.raises(ValueError, match="no puede exceder los 4000"):
+        sanitize_prompt_text("A" * 4001)
+
+    # 2. Test Safe Repo Path & Path Traversal Guard
+    workspace = "/runner_workspace/repo"
+    assert is_safe_repo_path(workspace, "src/components/Header.tsx") is True
+    assert is_safe_repo_path(workspace, "README.md") is True
+    assert is_safe_repo_path(workspace, "docs/api/v1.json") is True
+
+    # Path traversal attempts
+    assert is_safe_repo_path(workspace, "../etc/passwd") is False
+    assert is_safe_repo_path(workspace, "../../secret.txt") is False
+    assert is_safe_repo_path(workspace, "foo/../../bar") is False
+
+    # Blocked sensitive paths
+    assert is_safe_repo_path(workspace, ".git/config") is False
+    assert is_safe_repo_path(workspace, ".git/hooks/pre-commit") is False
+    assert is_safe_repo_path(workspace, ".env") is False
+    assert is_safe_repo_path(workspace, ".env.production") is False
+    assert is_safe_repo_path(workspace, ".github/workflows/deploy.yml") is False
+
+    # 3. Test Secret Masking in Logs and Errors
+    test_gh_token = "ghp_SECRET_TOKEN_XYZ_12345"
+    test_gemini_key = "AIzaSy_GEMINI_KEY_ABC_98765"
+    secrets_to_mask = [test_gh_token, test_gemini_key]
+
+    raw_log = f"Clonando con token {test_gh_token} y llamando a Gemini con {test_gemini_key}..."
+    redacted = mask_secrets(raw_log, secrets_to_mask)
+    assert test_gh_token not in redacted
+    assert test_gemini_key not in redacted
+    assert "***REDACTED***" in redacted
+
+@pytest.mark.asyncio
+async def test_concurrent_active_quota():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # Register user
+        user_payload = {
+            "email": "rate_limited_user@test.com",
+            "name": "Rate Limited",
+            "password": "Password123!"
+        }
+        res = await ac.post("/api/auth/register", json=user_payload)
+        assert res.status_code == 200
+        token = res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Create project
+        proj_res = await ac.post("/api/projects", json={
+            "name": "Project Quota Test",
+            "repo_url": "https://github.com/example/quota-repo"
+        }, headers=headers)
+        assert proj_res.status_code == 200
+        proj_id = proj_res.json()["id"]
+
+        # Submit 3 prompts (the allowed maximum concurrent quota)
+        for i in range(1, 4):
+            resp = await ac.post("/api/prompts", json={
+                "project_id": proj_id,
+                "prompt": f"Tarea concurrente número {i} para verificar cuota"
+            }, headers=headers)
+            assert resp.status_code == 200, resp.text
+
+        # 4th prompt must be rejected with 429 Too Many Requests
+        resp4 = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Esta es la cuarta tarea concurrente y debe ser rechazada"
+        }, headers=headers)
+        assert resp4.status_code == 429
+        assert "Límite alcanzado" in resp4.json()["detail"]
+

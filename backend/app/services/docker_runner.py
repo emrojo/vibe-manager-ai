@@ -7,12 +7,21 @@ import tempfile
 import asyncio
 import shutil
 import subprocess
-from typing import Dict, Any, Optional
+from typing import Optional, Dict, Any, List
 
 from app.config import settings
 from app.services.task_streamer import task_stream_manager
 
 logger = logging.getLogger("docker_runner")
+
+def mask_secrets(text: Optional[str], secrets: list) -> str:
+    if not text or not isinstance(text, str):
+        return text or ""
+    masked = text
+    for s in secrets:
+        if s and isinstance(s, str) and len(s) >= 4:
+            masked = masked.replace(s, "***REDACTED***")
+    return masked
 
 async def execute_task_sandbox(
     task_id: int,
@@ -35,15 +44,23 @@ async def execute_task_sandbox(
     temp_dir = tempfile.mkdtemp(prefix=f"vibe_task_{task_id}_")
     result_file_path = os.path.join(temp_dir, "result.json")
 
+    resolved_github_token = github_token or settings.GITHUB_TOKEN or ""
+    resolved_gemini_api_key = gemini_api_key or settings.GEMINI_API_KEY or ""
+
+    active_tokens = [
+        s for s in [resolved_github_token, resolved_gemini_api_key]
+        if s and isinstance(s, str) and len(s) >= 4
+    ]
+
     task_payload = {
         "task_id": str(task_id),
         "mode": mode,
         "plan_content": plan_content or "",
         "repo_url": repo_url,
-        "github_token": github_token or settings.GITHUB_TOKEN or "",
+        "github_token": resolved_github_token,
         "default_branch": default_branch or "main",
         "prompt": prompt,
-        "gemini_api_key": gemini_api_key or settings.GEMINI_API_KEY,
+        "gemini_api_key": resolved_gemini_api_key,
         "gemini_model": gemini_model or settings.GEMINI_MODEL,
         "project_rules": project_rules or "",
         "output_file": "/runner_workspace/result.json"
@@ -83,21 +100,22 @@ async def execute_task_sandbox(
             captured_result_lines.append(cleaned)
             return
 
-        # Normal log line
-        logger.info(f"[Task #{task_id}] {cleaned}")
-        logs_accumulator.append(cleaned)
-        await task_stream_manager.publish_log(task_id, cleaned)
+        # Normal log line with secret masking
+        safe_line = mask_secrets(cleaned, active_tokens)
+        logger.info(f"[Task #{task_id}] {safe_line}")
+        logs_accumulator.append(safe_line)
+        await task_stream_manager.publish_log(task_id, safe_line)
 
         # Detect error patterns
-        lower = cleaned.lower()
+        lower = safe_line.lower()
         if "[vibe-runner] error:" in lower:
-            error_candidate = cleaned.split("ERROR:", 1)[-1].strip()
+            error_candidate = safe_line.split("ERROR:", 1)[-1].strip()
         elif "fatal:" in lower:
-            error_candidate = cleaned.split("fatal:", 1)[-1].strip()
+            error_candidate = safe_line.split("fatal:", 1)[-1].strip()
         elif "runtimeerror:" in lower:
-            error_candidate = cleaned.split("runtimeerror:", 1)[-1].strip()
+            error_candidate = safe_line.split("runtimeerror:", 1)[-1].strip()
         elif "valueerror:" in lower:
-            error_candidate = cleaned.split("valueerror:", 1)[-1].strip()
+            error_candidate = safe_line.split("valueerror:", 1)[-1].strip()
 
     await emit_log(f"Iniciando sandbox para tarea #{task_id} en {repo_url}...")
 
@@ -128,17 +146,23 @@ async def execute_task_sandbox(
     container_name = f"vibe-sandbox-task-{task_id}"
 
     if use_docker:
-        await emit_log("Docker daemon detectado. Ejecutando en contenedor aislado...")
+        await emit_log("Docker daemon detectado. Ejecutando en contenedor aislado con sandbox estricto...")
         cmd = [
             "docker", "run", "--rm",
             "--name", container_name,
+            "--read-only",
+            "--tmpfs", "/runner_workspace:rw,size=1g,nosuid,uid=10001,gid=10001",
+            "--tmpfs", "/tmp:rw,size=256m,nosuid",
+            "--tmpfs", "/home/runner:rw,size=64m,nosuid,uid=10001,gid=10001",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
             "--network", "bridge",
             "--memory", "2g",
             "-e", f"TASK_PAYLOAD_B64={payload_b64}",
             docker_image
         ]
         
-        await emit_log(f"Comando: docker run --rm --name {container_name} --network bridge --memory 2g vibe-runner:latest")
+        await emit_log(f"Comando: docker run --rm --name {container_name} --read-only --cap-drop=ALL --security-opt=no-new-privileges --tmpfs /runner_workspace ... {docker_image}")
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -244,6 +268,9 @@ async def execute_task_sandbox(
 
         if not result_data.get("success") and not result_data.get("error"):
             result_data["error"] = error_candidate or "Fallo en la ejecución de la tarea"
+
+    if result_data.get("error"):
+        result_data["error"] = mask_secrets(result_data["error"], active_tokens)
 
     result_data["logs"] = "\n".join(logs_accumulator)
 

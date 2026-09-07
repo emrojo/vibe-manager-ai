@@ -1,13 +1,37 @@
 import datetime
+import re
 from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+def sanitize_prompt_text(v: str) -> str:
+    if not isinstance(v, str):
+        return v
+    # Filter zero-width and invisible unicode characters
+    cleaned = re.sub(r"[\u200B-\u200D\uFEFF\u00A0\u2060]", "", v)
+    # Filter ASCII control characters (keep \t and \n, \r)
+    cleaned = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", cleaned).strip()
+    if len(cleaned) < 5:
+        raise ValueError("El prompt debe contener al menos 5 caracteres válidos.")
+    if len(cleaned) > 4000:
+        raise ValueError("El prompt no puede exceder los 4000 caracteres.")
+    return cleaned
 
 class PromptTaskCreate(BaseModel):
     project_id: int
-    prompt: str
+    prompt: str = Field(..., min_length=5, max_length=4000)
+
+    @field_validator("prompt")
+    @classmethod
+    def validate_prompt(cls, v: str) -> str:
+        return sanitize_prompt_text(v)
 
 class PromptTaskEdit(BaseModel):
-    edited_prompt: str
+    edited_prompt: str = Field(..., min_length=5, max_length=4000)
+
+    @field_validator("edited_prompt")
+    @classmethod
+    def validate_edited_prompt(cls, v: str) -> str:
+        return sanitize_prompt_text(v)
 
 class PromptTaskReject(BaseModel):
     rejection_reason: str

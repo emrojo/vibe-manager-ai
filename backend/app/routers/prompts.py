@@ -1,6 +1,6 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -65,7 +65,21 @@ async def submit_prompt(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Proyecto no encontrado o inactivo"
         )
-        
+
+    # Check user active tasks quota (max 3 concurrent)
+    active_statuses = ["PENDING", "APPROVED", "RUNNING", "PLAN_GENERATED", "PLAN_APPROVED"]
+    active_res = await db.execute(
+        select(func.count(PromptTask.id))
+        .where(PromptTask.user_id == current_user.id)
+        .where(PromptTask.status.in_(active_statuses))
+    )
+    active_count = active_res.scalar_one() or 0
+    if active_count >= 3:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Límite alcanzado: Tienes 3 o más tareas activas en cola o ejecución. Espera a que finalicen antes de enviar una nueva."
+        )
+
     cleaned_prompt = payload.prompt.strip()
     if not cleaned_prompt:
         raise HTTPException(
