@@ -1,0 +1,39 @@
+# ====================================================================
+# Vibe Manager AI - Systemd Service Unit
+# ====================================================================
+# Place in: /etc/systemd/system/vibe-manager.service
+#
+# Commands:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable vibe-manager
+#   sudo systemctl start vibe-manager
+#   sudo systemctl status vibe-manager
+#   sudo systemctl restart vibe-manager
+#   sudo journalctl -u vibe-manager -f
+# ====================================================================
+
+[Unit]
+Description=Vibe Manager AI Platform (Docker Compose Stack)
+Documentation=https://github.com/emrojo/vibe-manager-ai
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/vibe-manager-ai
+
+# Compose commands to start and stop the stack cleanly
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+ExecReload=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml restart
+
+# Process limits and restart policy
+TimeoutStartSec=300
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,31 @@
+# ====================================================================
+# Vibe Manager AI - Production Docker Compose Overlay
+# ====================================================================
+# In production, host Nginx manages public ports 80 and 443 with SSL.
+# This compose file binds all container ports to 127.0.0.1 so that
+# internal microservices and databases are never exposed to the internet.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# ====================================================================
+
+services:
+  # Internal Reverse Proxy Gateway bound only to loopback
+  gateway:
+    ports:
+      - "127.0.0.1:8080:80"
+
+  # Backend API bound only to loopback
+  backend:
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  # Frontend Next.js bound only to loopback
+  frontend:
+    ports:
+      - "127.0.0.1:3010:3010"
+
+  # PostgreSQL 16 database bound only to loopback
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"
