@@ -18,9 +18,12 @@ import {
   Info,
   Sparkles,
   AlertCircle,
-  Square
+  Square,
+  FileCode2,
+  FileText
 } from "lucide-react";
 import LiveConsoleModal from "@/components/LiveConsoleModal";
+import UserPlanModal from "@/components/UserPlanModal";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -34,6 +37,8 @@ export default function DashboardPage() {
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTaskLogs, setSelectedTaskLogs] = useState<PromptTask | null>(null);
+  const [selectedPlanTask, setSelectedPlanTask] = useState<PromptTask | null>(null);
+  const [filterPlanOnly, setFilterPlanOnly] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
@@ -328,7 +333,7 @@ export default function DashboardPage() {
 
       {/* History Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <Clock className="w-5 h-5 text-indigo-400" />
@@ -338,14 +343,39 @@ export default function DashboardPage() {
               Estado en tiempo real de las solicitudes enviadas
             </p>
           </div>
-          <button
-            onClick={loadData}
-            disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-all"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
-            <span>Actualizar</span>
-          </button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+              <button
+                type="button"
+                onClick={() => setFilterPlanOnly(false)}
+                className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                  !filterPlanOnly ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Todos ({myPrompts.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterPlanOnly(true)}
+                className={`px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+                  filterPlanOnly ? "bg-purple-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <FileCode2 className="w-3.5 h-3.5" />
+                <span>Con Plan ({myPrompts.filter(t => t.plan_content || t.status === "PLAN_PENDING" || t.status === "PLAN_APPROVED").length})</span>
+              </button>
+            </div>
+
+            <button
+              onClick={loadData}
+              disabled={refreshing}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-all"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+              <span>Actualizar</span>
+            </button>
+          </div>
         </div>
 
         {myPrompts.length === 0 ? (
@@ -353,6 +383,12 @@ export default function DashboardPage() {
             <Sparkles className="w-8 h-8 text-slate-600 mx-auto mb-2" />
             <p className="text-sm text-slate-400 font-medium">Aún no has enviado ningún prompt.</p>
             <p className="text-xs text-slate-500 mt-1">Escribe tu primera solicitud en el formulario de arriba.</p>
+          </div>
+        ) : filterPlanOnly && myPrompts.filter(t => t.plan_content || t.status === "PLAN_PENDING" || t.status === "PLAN_APPROVED").length === 0 ? (
+          <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl">
+            <FileCode2 className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+            <p className="text-sm text-slate-400 font-medium">Aún no tienes ningún prompt con plan técnico generado.</p>
+            <p className="text-xs text-slate-500 mt-1">Cuando los validadores aprueben tus prompts, Gemini formulará el plan técnico y aparecerá aquí.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -368,7 +404,9 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {myPrompts.map((task) => (
+                {myPrompts
+                  .filter((t) => !filterPlanOnly || (t.plan_content || t.status === "PLAN_PENDING" || t.status === "PLAN_APPROVED"))
+                  .map((task) => (
                   <tr key={task.id} className="hover:bg-slate-800/30 transition-colors">
                     <td className="py-3.5 px-4 font-mono text-xs text-slate-400">
                       #{task.id}
@@ -388,6 +426,17 @@ export default function DashboardPage() {
                     </td>
                     <td className="py-3.5 px-4">
                       {getStatusBadge(task.status)}
+                      {task.plan_content && (
+                        <div className="mt-1">
+                          <button
+                            onClick={() => setSelectedPlanTask(task)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] font-semibold transition-all"
+                          >
+                            <FileCode2 className="w-3 h-3 text-purple-400" />
+                            <span>Ver Plan Técnico</span>
+                          </button>
+                        </div>
+                      )}
                       {task.rejection_reason && (
                         <p className="text-[11px] text-rose-400 mt-1 max-w-xs line-clamp-2">
                           Motivo: {task.rejection_reason}
@@ -430,23 +479,40 @@ export default function DashboardPage() {
                           </button>
                         )}
 
-                        {task.status === "RUNNING" ? (
+                        {/* Plan View Button */}
+                        {task.plan_content && (
                           <button
-                            onClick={() => setSelectedTaskLogs(task)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold shadow-sm transition-all"
+                            onClick={() => setSelectedPlanTask(task)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 text-xs font-semibold shadow-sm transition-all"
+                            title="Ver Plan Técnico de Implementación"
                           >
-                            <Terminal className="w-3.5 h-3.5 animate-pulse" />
-                            <span>Consola en Vivo</span>
+                            <FileCode2 className="w-3.5 h-3.5 text-purple-400" />
+                            <span>Plan</span>
                           </button>
-                        ) : (task.execution_logs || task.status === "FAILED" || task.status === "STOPPED" || task.status === "COMPLETED") ? (
-                          <button
-                            onClick={() => setSelectedTaskLogs(task)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition-colors"
-                          >
-                            <Terminal className="w-3.5 h-3.5" />
-                            <span>Consola</span>
-                          </button>
-                        ) : null}
+                        )}
+
+                        {/* Console button ONLY visible for Admin */}
+                        {user?.role === "admin" && (
+                          <>
+                            {task.status === "RUNNING" ? (
+                              <button
+                                onClick={() => setSelectedTaskLogs(task)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold shadow-sm transition-all"
+                              >
+                                <Terminal className="w-3.5 h-3.5 animate-pulse" />
+                                <span>Consola en Vivo</span>
+                              </button>
+                            ) : (task.execution_logs || task.status === "FAILED" || task.status === "STOPPED" || task.status === "COMPLETED") ? (
+                              <button
+                                onClick={() => setSelectedTaskLogs(task)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition-colors"
+                              >
+                                <Terminal className="w-3.5 h-3.5" />
+                                <span>Consola</span>
+                              </button>
+                            ) : null}
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -457,8 +523,16 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Live Console Modal */}
-      {selectedTaskLogs && (
+      {/* User Plan Modal */}
+      {selectedPlanTask && (
+        <UserPlanModal
+          task={selectedPlanTask}
+          onClose={() => setSelectedPlanTask(null)}
+        />
+      )}
+
+      {/* Live Console Modal (Only for Admin) */}
+      {selectedTaskLogs && user?.role === "admin" && (
         <LiveConsoleModal
           task={selectedTaskLogs}
           onClose={() => setSelectedTaskLogs(null)}

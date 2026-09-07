@@ -50,13 +50,17 @@ export default function ProcessesPage() {
   const [selectedTask, setSelectedTask] = useState<ProcessItem | null>(null);
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.push("/login");
+    if (!authLoading) {
+      if (!user) {
+        router.push("/login");
+      } else if (user.role !== "admin") {
+        router.push("/dashboard");
+      }
     }
   }, [user, authLoading, router]);
 
   const loadProcesses = async (showLoading = false) => {
-    if (!user) return;
+    if (!user || user.role !== "admin") return;
     if (showLoading) setLoading(true);
     try {
       const data = await apiRequest<{ running_count: number; pending_count: number; processes: ProcessItem[] }>("/processes/active");
@@ -140,7 +144,7 @@ export default function ProcessesPage() {
     return true;
   });
 
-  if (authLoading || !user) return null;
+  if (authLoading || !user || user.role !== "admin") return null;
 
   return (
     <div className="space-y-8">

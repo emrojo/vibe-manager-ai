@@ -102,7 +102,8 @@ async def list_my_prompts(
         .options(
             selectinload(PromptTask.project),
             selectinload(PromptTask.user),
-            selectinload(PromptTask.validator)
+            selectinload(PromptTask.validator),
+            selectinload(PromptTask.plan_validator)
         )
         .where(PromptTask.user_id == current_user.id)
         .order_by(PromptTask.created_at.desc())
@@ -123,7 +124,8 @@ async def list_user_pull_requests(
         .options(
             selectinload(PromptTask.project),
             selectinload(PromptTask.user),
-            selectinload(PromptTask.validator)
+            selectinload(PromptTask.validator),
+            selectinload(PromptTask.plan_validator)
         )
         .where(
             PromptTask.user_id == current_user.id,
@@ -145,7 +147,8 @@ async def get_prompt_detail(
         .options(
             selectinload(PromptTask.project),
             selectinload(PromptTask.user),
-            selectinload(PromptTask.validator)
+            selectinload(PromptTask.validator),
+            selectinload(PromptTask.plan_validator)
         )
         .where(PromptTask.id == prompt_id)
     )

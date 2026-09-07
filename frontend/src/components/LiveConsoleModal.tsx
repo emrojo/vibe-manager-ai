@@ -16,7 +16,7 @@ import {
   WifiOff,
   Square
 } from "lucide-react";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, getToken } from "@/lib/api";
 
 interface LiveConsoleModalProps {
   task: {
@@ -82,12 +82,14 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
     const isHttps = typeof window !== "undefined" && window.location.protocol === "https:";
     const wsProto = isHttps ? "wss:" : "ws:";
     const host = typeof window !== "undefined" ? window.location.host : "localhost";
+    const token = getToken();
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : "";
     
     // Connect to WebSocket console
-    let wsUrl = `${wsProto}//${host}/api/processes/${task.id}/console`;
+    let wsUrl = `${wsProto}//${host}/api/processes/${task.id}/console${tokenParam}`;
     // If in dev direct to backend 3010 / 8000
     if (host.includes(":3010")) {
-      wsUrl = `${wsProto}//${window.location.hostname}:8000/api/processes/${task.id}/console`;
+      wsUrl = `${wsProto}//${window.location.hostname}:8000/api/processes/${task.id}/console${tokenParam}`;
     }
 
     const ws = new WebSocket(wsUrl);

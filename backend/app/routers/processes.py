@@ -7,7 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.auth import get_current_user
+from jose import JWTError, jwt
+
+from app.auth import get_current_user, require_roles
+from app.config import settings
 from app.database import get_db, AsyncSessionLocal
 from app.models.prompt_task import PromptTask
 from app.models.user import User
@@ -19,7 +22,7 @@ router = APIRouter(prefix="/processes", tags=["processes"])
 
 @router.get("/active")
 async def get_active_processes(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -73,7 +76,7 @@ async def get_active_processes(
 @router.get("/{task_id}/details")
 async def get_process_details(
     task_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin", "validator"])),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
@@ -165,11 +168,37 @@ async def stop_process(
     return {"success": False, "message": "Estado no gestionable"}
 
 @router.websocket("/{task_id}/console")
-async def stream_task_console(websocket: WebSocket, task_id: int):
+async def stream_task_console(
+    websocket: WebSocket,
+    task_id: int,
+    token: Optional[str] = None
+):
     """
     WebSocket endpoint for real-time console log streaming of a task.
-    Sends existing logs upon connect, then streams new lines as they arrive.
+    Requires valid token from admin or validator.
     """
+    is_authorized = False
+    if token:
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            user_id = int(payload.get("sub"))
+            async with AsyncSessionLocal() as db:
+                res = await db.execute(select(User).where(User.id == user_id))
+                u = res.scalars().first()
+                if u and not u.is_banned and u.is_active and u.role in ("admin", "validator"):
+                    is_authorized = True
+        except Exception:
+            is_authorized = False
+
+    if not is_authorized:
+        await websocket.accept()
+        await websocket.send_json({
+            "type": "error",
+            "message": "Acceso denegado. Solo administradores o validadores pueden acceder a la consola."
+        })
+        await websocket.close(code=4003)
+        return
+
     await websocket.accept()
 
     # Verify task existence and current status

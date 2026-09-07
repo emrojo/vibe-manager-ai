@@ -200,8 +200,11 @@ async def test_full_workflow():
         assert res.status_code == 200
         assert isinstance(res.json(), list)
 
-        # 16. Monitor active processes endpoint
+        # 16. Monitor active processes endpoint (forbidden for regular user Alice, allowed for Admin)
         res = await ac.get("/api/processes/active", headers=alice_headers)
+        assert res.status_code == 403, "Regular user should be forbidden from accessing /api/processes/active"
+
+        res = await ac.get("/api/processes/active", headers=admin_headers)
         assert res.status_code == 200
         proc_data = res.json()
         assert "running_count" in proc_data
@@ -209,8 +212,11 @@ async def test_full_workflow():
         assert "processes" in proc_data
         assert isinstance(proc_data["processes"], list)
 
-        # 17. Process details endpoint
+        # 17. Process details endpoint (forbidden for regular user Alice, allowed for Admin)
         res = await ac.get(f"/api/processes/{task_id}/details", headers=alice_headers)
+        assert res.status_code == 403, "Regular user should be forbidden from accessing /api/processes/{id}/details"
+
+        res = await ac.get(f"/api/processes/{task_id}/details", headers=admin_headers)
         assert res.status_code == 200
         detail_data = res.json()
         assert detail_data["id"] == task_id
@@ -246,8 +252,11 @@ async def test_full_workflow():
         assert stop_resp["success"] == True
         assert stop_resp["status"] == "STOPPED"
 
-        # Verify details show STOPPED
+        # Verify details show STOPPED (forbidden for Alice, accessible for Admin)
         res = await ac.get(f"/api/processes/{stop_task_id}/details", headers=alice_headers)
+        assert res.status_code == 403
+
+        res = await ac.get(f"/api/processes/{stop_task_id}/details", headers=admin_headers)
         assert res.status_code == 200
         assert res.json()["status"] == "STOPPED"
 
