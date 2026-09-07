@@ -22,10 +22,13 @@ async def execute_task_sandbox(
     default_branch: str = "main",
     project_rules: Optional[str] = None,
     gemini_api_key: Optional[str] = None,
-    gemini_model: Optional[str] = None
+    gemini_model: Optional[str] = None,
+    mode: str = "EXECUTE",
+    plan_content: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Executes the task inside an isolated Docker sandbox container.
+    Mode can be 'PLAN' (only generate plan markdown) or 'EXECUTE' (apply changes and PR).
     Falls back gracefully to a subprocess runner if Docker is unavailable.
     Streams logs in real time to task_stream_manager.
     """
@@ -34,6 +37,8 @@ async def execute_task_sandbox(
 
     task_payload = {
         "task_id": str(task_id),
+        "mode": mode,
+        "plan_content": plan_content or "",
         "repo_url": repo_url,
         "github_token": github_token or settings.GITHUB_TOKEN or "",
         "default_branch": default_branch or "main",
@@ -206,6 +211,10 @@ async def execute_task_sandbox(
         result_data = {
             "success": False,
             "stopped": True,
+            "mode": mode,
+            "summary": None,
+            "affected_files": [],
+            "plan_markdown": None,
             "branch_name": None,
             "commit_message": None,
             "pr_url": None,
@@ -215,6 +224,10 @@ async def execute_task_sandbox(
     else:
         result_data = parsed_result or {
             "success": False,
+            "mode": mode,
+            "summary": None,
+            "affected_files": [],
+            "plan_markdown": None,
             "branch_name": None,
             "commit_message": None,
             "pr_url": None,

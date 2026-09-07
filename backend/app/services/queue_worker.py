@@ -33,8 +33,15 @@ async def process_prompt_task(task_id: int):
             logger.error(f"[Worker] Tarea #{task_id} no encontrada.")
             return
             
+        initial_status = task.status
+        plan_content_cached = task.plan_content
+        mode = "EXECUTE" if initial_status == "PLAN_APPROVED" else "PLAN"
+
         task.status = "RUNNING"
-        task.execution_stage = "Iniciando sandbox..."
+        if mode == "PLAN":
+            task.execution_stage = "Elaborando plan técnico en sandbox..."
+        else:
+            task.execution_stage = "Aplicando cambios y creando Pull Request en sandbox..."
         task.error_message = None
         await db.commit()
         
@@ -73,7 +80,9 @@ async def process_prompt_task(task_id: int):
             default_branch=default_branch,
             project_rules=project_rules,
             gemini_api_key=settings.GEMINI_API_KEY,
-            gemini_model=settings.GEMINI_MODEL
+            gemini_model=settings.GEMINI_MODEL,
+            mode=mode,
+            plan_content=plan_content_cached
         )
     except Exception as e:
         logger.exception(f"[Worker] Excepción no controlada ejecutando tarea #{task_id}: {e}")
@@ -101,9 +110,15 @@ async def process_prompt_task(task_id: int):
             task.execution_stage = "Detenido por el usuario"
             task.error_message = runner_result.get("error") or "Proceso cancelado/detenido manualmente."
         elif runner_result.get("success"):
-            task.status = "COMPLETED"
-            task.execution_stage = "COMPLETED"
-            task.error_message = None
+            if mode == "PLAN":
+                task.status = "PLAN_PENDING"
+                task.execution_stage = "Plan generado - Pendiente de validación"
+                task.plan_content = runner_result.get("plan_markdown")
+                task.error_message = None
+            else:
+                task.status = "COMPLETED"
+                task.execution_stage = "COMPLETED"
+                task.error_message = None
         else:
             task.status = "FAILED"
             task.execution_stage = "FAILED"

@@ -32,6 +32,10 @@ async def lifespan(app: FastAPI):
         try:
             await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS error_message TEXT;"))
             await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS execution_stage VARCHAR(100);"))
+            await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS plan_content TEXT;"))
+            await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS plan_validated_by_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS plan_validated_at TIMESTAMP;"))
+            await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS plan_rejection_reason TEXT;"))
         except Exception as e:
             logger.debug(f"Schema column check: {e}")
 

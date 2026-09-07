@@ -147,7 +147,19 @@ export default function DashboardPage() {
       case "APPROVED":
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">
-            <CheckCircle className="w-3.5 h-3.5" /> Aprobado
+            <CheckCircle className="w-3.5 h-3.5" /> Generando Plan...
+          </span>
+        );
+      case "PLAN_PENDING":
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/20">
+            <Clock className="w-3.5 h-3.5" /> Plan en Validación
+          </span>
+        );
+      case "PLAN_APPROVED":
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-teal-500/10 text-teal-400 border border-teal-500/20">
+            <CheckCircle className="w-3.5 h-3.5" /> Plan Aprobado
           </span>
         );
       case "RUNNING":

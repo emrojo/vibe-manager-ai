@@ -42,16 +42,19 @@
    - Modal inspectors with live terminal logs.
 
 4. **Validator Review Desk (`/validator`)**:
-   - Filterable workbench for reviewing pending community proposals.
-   - **Inline prompt editor**: Refine, augment, or correct user instructions before dispatching to the AI.
-   - **Accept & Enqueue**: Dispatches tasks immediately to the asynchronous Docker queue worker.
-   - **Live console inspection**: Open live console during execution and inspect detailed failure causes on rejected or failed tasks.
+   - **Flujo de Trabajo en 2 Fases (Human-in-the-loop)**:
+     - **Fase 1 (Pestaña Prompts Pendientes)**: Revisa las solicitudes de los usuarios, realiza ajustes técnicos al prompt y aprueba la generación del plan.
+     - **Fase 2 (Pestaña Planes de Implementación)**: Inspecciona el plan técnico generado de forma aislada por Gemini en Docker (`## Objetivo`, `## Archivos Afectados`, `## Pasos Técnicos`). Aprueba el plan para ejecutar el código o rechaza con observaciones.
+   - **Inline prompt editor**: Refina directrices técnicas antes de solicitar el plan.
+   - **Visualizador estructurado de planes**: Renderizado Markdown claro con archivos afectados y pasos detallados.
+   - **Live console inspection**: Inspecciona en tiempo real o en diferido la consola Docker de generación de plan y de ejecución de código.
 
 5. **Ephemeral Docker Sandbox Runner (`/runner`)**:
-   - **Blast Radius Limitation**: All Git clones, AI executions, and file modifications occur inside an isolated Docker container (`vibe-runner:latest`).
+   - **Blast Radius Limitation**: Todas las consultas a Gemini (elaboración de plan técnico y aplicación de cambios de código), clonados y git pushes se ejecutan dentro del sandbox Docker (`vibe-runner:latest`).
+   - Modos de ejecución: `mode="PLAN"` (análisis de repositorio y propuesta de plan estructurado) y `mode="EXECUTE"` (aplicación de cambios, commit y PR).
    - Real-time line-by-line streaming: Asynchronous streaming of stdout/stderr directly to connected WebSockets without blocking.
    - Limits: 2GB memory cap, 300s timeout, non-root execution, network limited to GitHub & Google AI APIs.
-   - Payload decoupled via base64 environment encoding (`TASK_PAYLOAD_B64`) and stdout delimiter streaming (`===VIBE_RESULT_START===`).
+   - Decoupled payload via base64 environment encoding (`TASK_PAYLOAD_B64`) and stdout delimiter streaming (`===VIBE_RESULT_START===`).
 
 6. **Administrator Console (`/admin`)**:
    - User governance: Ban, readmit, and grant/revoke the **Validator** role.
@@ -76,17 +79,15 @@ flowchart TD
         U -->|View Personal PRs| PRS[My Pull Requests View]
     end
 
-    subgraph Human-in-the-Loop Validation
-        VAL[Validator] -->|2. Review & Refine Prompt| DB
-        VAL -->|3. Approve Task| Q[Async Background Queue]
-    end
-
-    subgraph Docker Sandboxed Execution
-        Q -->|4. Launch Container| DOCKER[vibe-runner Container]
-        DOCKER -->|Clone Repository| GH[(GitHub Remote Repo)]
-        DOCKER -->|Plan & Modify Code| GEMINI[Google Gemini AI]
-        DOCKER -->|Push Branch & Open PR| GH
-        DOCKER -->|5. Delimited Result JSON| DB
+    subgraph Two-Phase Human-in-the-Loop Validation
+        VAL[Validator] -->|2. Review Prompt & Request Plan| DB
+        DB -->|3. Trigger Mode PLAN| DOCKER_PLAN[Docker Sandbox: Plan Mode]
+        DOCKER_PLAN -->|Generate Technical Plan| GEMINI[Google Gemini AI]
+        DOCKER_PLAN -->|Save Plan Markdown| DB
+        VAL -->|4. Review & Approve Plan| DB
+        DB -->|5. Trigger Mode EXECUTE| DOCKER_EXEC[Docker Sandbox: Execute Mode]
+        DOCKER_EXEC -->|Apply Changes from Plan| GEMINI
+        DOCKER_EXEC -->|Push Branch & Open PR| GH[(GitHub Remote Repo)]
     end
 
     subgraph Administrative Governance

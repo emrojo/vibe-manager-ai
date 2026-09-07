@@ -12,6 +12,9 @@ class PromptTaskEdit(BaseModel):
 class PromptTaskReject(BaseModel):
     rejection_reason: str
 
+class PlanReject(BaseModel):
+    rejection_reason: str
+
 class PromptTaskRead(BaseModel):
     id: int
     project_id: int
@@ -32,6 +35,11 @@ class PromptTaskRead(BaseModel):
     execution_stage: Optional[str] = None
     execution_logs: Optional[str] = None
     error_message: Optional[str] = None
+    plan_content: Optional[str] = None
+    plan_validated_by_id: Optional[int] = None
+    plan_validator_name: Optional[str] = None
+    plan_validated_at: Optional[datetime.datetime] = None
+    plan_rejection_reason: Optional[str] = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
 

@@ -31,7 +31,7 @@ export interface PromptTask {
   user_email?: string;
   original_prompt: string;
   edited_prompt?: string;
-  status: "PENDING" | "APPROVED" | "REJECTED" | "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED";
+  status: "PENDING" | "APPROVED" | "PLAN_PENDING" | "PLAN_APPROVED" | "REJECTED" | "RUNNING" | "COMPLETED" | "FAILED" | "STOPPED";
   rejection_reason?: string;
   validated_by_id?: number;
   validator_name?: string;
@@ -42,6 +42,11 @@ export interface PromptTask {
   execution_stage?: string;
   execution_logs?: string;
   error_message?: string;
+  plan_content?: string;
+  plan_validated_by_id?: number;
+  plan_validator_name?: string;
+  plan_validated_at?: string;
+  plan_rejection_reason?: string;
   created_at: string;
   updated_at: string;
 }

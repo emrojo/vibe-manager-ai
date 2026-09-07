@@ -31,9 +31,16 @@ class PromptTask(Base):
     execution_logs = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
     
+    # Plan Validation info
+    plan_content = Column(Text, nullable=True)
+    plan_validated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    plan_validated_at = Column(DateTime, nullable=True)
+    plan_rejection_reason = Column(Text, nullable=True)
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
 
     project = relationship("Project", back_populates="prompts")
     user = relationship("User", foreign_keys=[user_id], back_populates="prompts")
     validator = relationship("User", foreign_keys=[validated_by_id])
+    plan_validator = relationship("User", foreign_keys=[plan_validated_by_id])

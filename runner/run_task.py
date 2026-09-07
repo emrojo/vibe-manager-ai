@@ -38,13 +38,95 @@ def extract_owner_repo(repo_url: str) -> Optional[Tuple[str, str]]:
         return parts[0], parts[1]
     return None
 
-def call_gemini(
+def call_gemini_plan(
     prompt: str,
     project_name: str,
     api_key: str,
     model: str = "gemini-3.6-flash",
     file_tree: Optional[List[str]] = None,
     rules: Optional[str] = None
+) -> Dict[str, Any]:
+    if not api_key:
+        log("No GEMINI_API_KEY provided. Using automated plan template.")
+        return {
+            "summary": f"Plan automático de implementación para {project_name}.",
+            "affected_files": ["VIBE_CHANGES.md"],
+            "plan_markdown": f"# Plan de Implementación: {project_name}\n\n**Objetivo:**\n{prompt}\n\n### Acciones previstas:\n- Crear o modificar `VIBE_CHANGES.md` con los requisitos solicitados.\n- Verificar consistencia de código."
+        }
+
+    system_instruction = (
+        "Eres un arquitecto de software senior y líder técnico. "
+        "Tu tarea es analizar el repositorio y el prompt del usuario para diseñar un Plan de Implementación técnico detallado. "
+        "NO generes el código final todavía, concéntrate en la estrategia, arquitectura, pasos y ficheros que se afectarán. "
+        "Devuelve EXCLUSIVAMENTE un JSON con: "
+        "1. summary: resumen conciso en 1 o 2 líneas. "
+        "2. affected_files: lista de rutas relativas de archivos que se crearán, modificarán o eliminarán. "
+        "3. plan_markdown: documento estructurado en Markdown con las secciones:\n"
+        "   - ## Objetivo y Diagnóstico\n"
+        "   - ## Archivos Afectados y Justificación\n"
+        "   - ## Pasos Técnicos de Ejecución\n"
+        "   - ## Consideraciones y Pruebas"
+    )
+
+    user_text = f"Proyecto: {project_name}\n"
+    if rules:
+        user_text += f"Reglas del proyecto:\n{rules}\n\n"
+    if file_tree:
+        user_text += f"Estructura de archivos del repositorio:\n" + "\n".join(file_tree[:100]) + "\n\n"
+    user_text += f"Prompt solicitado:\n\"\"\"\n{prompt}\n\"\"\"\nGenera el plan técnico en JSON."
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": system_instruction},
+                    {"text": user_text}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+            "responseMimeType": "application/json"
+        }
+    }
+
+    models_to_try = [model]
+    for fallback in ["gemini-3.6-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+        if fallback not in models_to_try:
+            models_to_try.append(fallback)
+
+    last_error = None
+    with httpx.Client(timeout=90.0) as client:
+        for current_model in models_to_try:
+            endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
+            log(f"Invocando Google Gemini ({current_model}) para elaborar Plan...")
+            res = client.post(endpoint, json=payload)
+            if res.status_code == 200:
+                data = res.json()
+                raw_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                if raw_text.startswith("```"):
+                    raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+                    raw_text = re.sub(r"\s*```$", "", raw_text)
+                return json.loads(raw_text)
+
+            error_text = res.text
+            log(f"Aviso: Modelo {current_model} devolvió ({res.status_code}): {error_text}")
+            last_error = f"Error llamando a Gemini ({res.status_code}): {error_text}"
+            if res.status_code in (400, 404):
+                continue
+            else:
+                break
+
+        raise RuntimeError(last_error or "Error elaborando plan con Gemini API")
+
+def call_gemini(
+    prompt: str,
+    project_name: str,
+    api_key: str,
+    model: str = "gemini-3.6-flash",
+    file_tree: Optional[List[str]] = None,
+    rules: Optional[str] = None,
+    plan: Optional[str] = None
 ) -> Dict[str, Any]:
     if not api_key:
         log("No GEMINI_API_KEY provided. Using default automated modification template.")
@@ -70,6 +152,8 @@ def call_gemini(
     user_text = f"Proyecto: {project_name}\n"
     if rules:
         user_text += f"Reglas del proyecto:\n{rules}\n\n"
+    if plan:
+        user_text += f"PLAN DE IMPLEMENTACIÓN APROBADO PREVIAMENTE:\n\"\"\"\n{plan}\n\"\"\"\nAplica exactamente las modificaciones descritas en este plan aprobado.\n\n"
     if file_tree:
         user_text += f"Árbol de archivos:\n" + "\n".join(file_tree[:80]) + "\n\n"
     user_text += f"Prompt del usuario:\n\"\"\"\n{prompt}\n\"\"\"\nGenera los cambios requeridos."
@@ -157,12 +241,18 @@ def main():
     gemini_model = task_data.get("gemini_model") or os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
     project_rules = task_data.get("project_rules") or os.getenv("PROJECT_RULES", "")
     output_file = task_data.get("output_file") or os.getenv("OUTPUT_FILE", "/runner_workspace/result.json")
+    mode = (task_data.get("mode") or os.getenv("MODE", "EXECUTE")).upper()
+    plan_content_input = task_data.get("plan_content") or os.getenv("PLAN_CONTENT", "")
 
     workspace_dir = os.getenv("WORKSPACE_DIR", "/runner_workspace/repo")
 
     result = {
         "success": False,
+        "mode": mode,
         "task_id": task_id,
+        "summary": None,
+        "affected_files": [],
+        "plan_markdown": None,
         "branch_name": None,
         "commit_message": None,
         "pr_url": None,
@@ -200,12 +290,6 @@ def main():
         if code != 0:
             raise RuntimeError(f"Error al clonar repositorio: {err}")
 
-        # Create new feature branch
-        branch_name = f"vibe/task-{task_id}-{secrets.token_hex(3)}"
-        result["branch_name"] = branch_name
-        log(f"Creando rama: {branch_name}")
-        run_cmd(["git", "checkout", "-b", branch_name], cwd=workspace_dir)
-
         # Scan files
         file_tree = []
         for root, _, files in os.walk(workspace_dir):
@@ -215,84 +299,107 @@ def main():
                 rel = os.path.relpath(os.path.join(root, f), workspace_dir)
                 file_tree.append(rel.replace("\\", "/"))
 
-        # Generate changes with Gemini
-        log("Invocando a Google Gemini para interpretar el prompt y generar cambios de código...")
-        plan = call_gemini(
-            prompt=prompt,
-            project_name=repo_name,
-            api_key=gemini_api_key,
-            model=gemini_model,
-            file_tree=file_tree,
-            rules=project_rules
-        )
-
-        commit_msg = plan.get("commit_message") or f"feat: apply vibe prompt task #{task_id}"
-        pr_title = plan.get("pr_title") or f"Vibe Task #{task_id}"
-        pr_body = plan.get("pr_body") or f"Modificaciones automáticas para la tarea #{task_id}\n\nPrompt:\n{prompt}"
-        changes = plan.get("changes", [])
-
-        result["commit_message"] = commit_msg
-
-        log(f"Aplicando {len(changes)} cambios en el código...")
-        for ch in changes:
-            rel_path = ch.get("path")
-            action = ch.get("action", "MODIFY").upper()
-            content = ch.get("content", "")
-            if not rel_path:
-                continue
-            full_path = os.path.join(workspace_dir, rel_path)
-            
-            if action == "DELETE":
-                if os.path.exists(full_path):
-                    os.remove(full_path)
-                    log(f"Eliminado: {rel_path}")
-            else:
-                os.makedirs(os.path.dirname(full_path), exist_ok=True)
-                with open(full_path, "w", encoding="utf-8") as f:
-                    f.write(content)
-                log(f"{'Creado' if action == 'CREATE' else 'Modificado'}: {rel_path}")
-
-        # Git add and commit
-        run_cmd(["git", "add", "-A"], cwd=workspace_dir)
-        code, out, err = run_cmd(["git", "commit", "-m", commit_msg], cwd=workspace_dir)
-        if code != 0:
-            log("Aviso: git commit no detectó cambios nuevos.")
-
-        # Git push
-        if github_token:
-            log(f"Haciendo push de la rama {branch_name} a GitHub...")
-            code, out, err = run_cmd(["git", "push", "-u", "origin", branch_name], cwd=workspace_dir)
-            if code != 0:
-                raise RuntimeError(f"Error al hacer push de la rama: {err}")
-
-            # Create PR
-            log("Creando Pull Request en GitHub...")
-            api_url = f"https://api.github.com/repos/{owner}/{repo_name}/pulls"
-            headers = {
-                "Authorization": f"Bearer {github_token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28"
-            }
-            pr_payload = {
-                "title": pr_title,
-                "body": pr_body,
-                "head": branch_name,
-                "base": default_branch
-            }
-            with httpx.Client(timeout=30.0) as client:
-                pr_res = client.post(api_url, json=pr_payload, headers=headers)
-                if pr_res.status_code in [200, 201]:
-                    pr_json = pr_res.json()
-                    result["pr_url"] = pr_json.get("html_url")
-                    result["pr_number"] = pr_json.get("number")
-                    log(f"Pull Request creado exitosamente: {result['pr_url']}")
-                else:
-                    raise RuntimeError(f"Error creando PR en GitHub ({pr_res.status_code}): {pr_res.text}")
+        if mode == "PLAN":
+            log("Modo PLAN: Generando plan de implementación con Gemini...")
+            plan_res = call_gemini_plan(
+                prompt=prompt,
+                project_name=repo_name,
+                api_key=gemini_api_key,
+                model=gemini_model,
+                file_tree=file_tree,
+                rules=project_rules
+            )
+            result["summary"] = plan_res.get("summary")
+            result["affected_files"] = plan_res.get("affected_files", [])
+            result["plan_markdown"] = plan_res.get("plan_markdown")
+            result["success"] = True
+            log("Plan de implementación generado y registrado exitosamente.")
         else:
-            log("Aviso: No se proporcionó GITHUB_TOKEN; commit generado localmente en la rama sin push a GitHub.")
+            # Mode EXECUTE
+            branch_name = f"vibe/task-{task_id}-{secrets.token_hex(3)}"
+            result["branch_name"] = branch_name
+            log(f"Modo EXECUTE: Creando rama {branch_name}...")
+            run_cmd(["git", "checkout", "-b", branch_name], cwd=workspace_dir)
 
-        result["success"] = True
-        log("Ejecución completada con éxito.")
+            # Generate changes with Gemini
+            log("Invocando a Google Gemini para interpretar el prompt y generar cambios de código...")
+            plan = call_gemini(
+                prompt=prompt,
+                project_name=repo_name,
+                api_key=gemini_api_key,
+                model=gemini_model,
+                file_tree=file_tree,
+                rules=project_rules,
+                plan=plan_content_input
+            )
+
+            commit_msg = plan.get("commit_message") or f"feat: apply vibe prompt task #{task_id}"
+            pr_title = plan.get("pr_title") or f"Vibe Task #{task_id}"
+            pr_body = plan.get("pr_body") or f"Modificaciones automáticas para la tarea #{task_id}\n\nPrompt:\n{prompt}"
+            changes = plan.get("changes", [])
+
+            result["commit_message"] = commit_msg
+
+            log(f"Aplicando {len(changes)} cambios en el código...")
+            for ch in changes:
+                rel_path = ch.get("path")
+                action = ch.get("action", "MODIFY").upper()
+                content = ch.get("content", "")
+                if not rel_path:
+                    continue
+                full_path = os.path.join(workspace_dir, rel_path)
+                
+                if action == "DELETE":
+                    if os.path.exists(full_path):
+                        os.remove(full_path)
+                        log(f"Eliminado: {rel_path}")
+                else:
+                    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                    with open(full_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    log(f"{'Creado' if action == 'CREATE' else 'Modificado'}: {rel_path}")
+
+            # Git add and commit
+            run_cmd(["git", "add", "-A"], cwd=workspace_dir)
+            code, out, err = run_cmd(["git", "commit", "-m", commit_msg], cwd=workspace_dir)
+            if code != 0:
+                log("Aviso: git commit no detectó cambios nuevos.")
+
+            # Git push
+            if github_token:
+                log(f"Haciendo push de la rama {branch_name} a GitHub...")
+                code, out, err = run_cmd(["git", "push", "-u", "origin", branch_name], cwd=workspace_dir)
+                if code != 0:
+                    raise RuntimeError(f"Error al hacer push de la rama: {err}")
+
+                # Create PR
+                log("Creando Pull Request en GitHub...")
+                api_url = f"https://api.github.com/repos/{owner}/{repo_name}/pulls"
+                headers = {
+                    "Authorization": f"Bearer {github_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28"
+                }
+                pr_payload = {
+                    "title": pr_title,
+                    "body": pr_body,
+                    "head": branch_name,
+                    "base": default_branch
+                }
+                with httpx.Client(timeout=30.0) as client:
+                    pr_res = client.post(api_url, json=pr_payload, headers=headers)
+                    if pr_res.status_code in [200, 201]:
+                        pr_json = pr_res.json()
+                        result["pr_url"] = pr_json.get("html_url")
+                        result["pr_number"] = pr_json.get("number")
+                        log(f"Pull Request creado exitosamente: {result['pr_url']}")
+                    else:
+                        raise RuntimeError(f"Error creando PR en GitHub ({pr_res.status_code}): {pr_res.text}")
+            else:
+                log("Aviso: No se proporcionó GITHUB_TOKEN; commit generado localmente en la rama sin push a GitHub.")
+
+            result["success"] = True
+            log("Ejecución completada con éxito.")
 
     except Exception as e:
         log(f"ERROR: {str(e)}")

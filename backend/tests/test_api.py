@@ -250,3 +250,92 @@ async def test_full_workflow():
         res = await ac.get(f"/api/processes/{stop_task_id}/details", headers=alice_headers)
         assert res.status_code == 200
         assert res.json()["status"] == "STOPPED"
+
+@pytest.mark.asyncio
+async def test_two_stage_plan_validation():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # Register admin
+        admin_res = await ac.post("/api/auth/register", json={
+            "email": "planadmin@vibemanager.ai",
+            "name": "Plan Admin",
+            "password": "Password123!"
+        })
+        admin_token = admin_res.json()["access_token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # Admin creates invitation code
+        inv_res = await ac.post("/api/admin/invitations", json={"max_uses": 5, "expires_in_days": 10}, headers=admin_headers)
+        invite_code = inv_res.json()["code"]
+
+        # Create validator user
+        val_res = await ac.post("/api/auth/register", json={
+            "email": "valuser@vibemanager.ai",
+            "name": "Val User",
+            "password": "Password123!",
+            "invite_code": invite_code
+        })
+        val_id = val_res.json()["user"]["id"]
+        await ac.post(f"/api/admin/users/{val_id}/role", json={"role": "validator"}, headers=admin_headers)
+
+        val_login = await ac.post("/api/auth/login", json={"email": "valuser@vibemanager.ai", "password": "Password123!"})
+        val_token = val_login.json()["access_token"]
+        val_headers = {"Authorization": f"Bearer {val_token}"}
+
+        # Create project
+        proj_res = await ac.post("/api/projects", json={
+            "name": "Plan Project",
+            "repo_url": "https://github.com/org/repo",
+            "default_branch": "main"
+        }, headers=admin_headers)
+        proj_id = proj_res.json()["id"]
+
+        # Create prompt task
+        prompt_res = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Generar pantalla de login con Tailwind"
+        }, headers=admin_headers)
+        task_id = prompt_res.json()["id"]
+
+        # Update task in DB directly to simulate PLAN_PENDING with generated plan
+        async with TestingSessionLocal() as session:
+            from app.models.prompt_task import PromptTask
+            from sqlalchemy import select
+            q = await session.execute(select(PromptTask).where(PromptTask.id == task_id))
+            t = q.scalars().first()
+            t.status = "PLAN_PENDING"
+            t.plan_content = "## Objetivo y Diagnóstico\nCrear pantalla de login.\n\n## Archivos Afectados\n- src/Login.tsx"
+            await session.commit()
+
+        # Check list in validation endpoint
+        list_res = await ac.get("/api/validation/tasks?status_filter=PLAN_PENDING", headers=val_headers)
+        assert list_res.status_code == 200
+        plan_tasks = list_res.json()
+        assert any(t["id"] == task_id for t in plan_tasks)
+
+        # Test Reject Plan
+        reject_res = await ac.post(f"/api/validation/tasks/{task_id}/reject-plan", json={
+            "rejection_reason": "El plan modifica un componente obsoleto"
+        }, headers=val_headers)
+        assert reject_res.status_code == 200
+        assert reject_res.json()["status"] == "REJECTED"
+        assert reject_res.json()["plan_rejection_reason"] == "El plan modifica un componente obsoleto"
+
+        # Create second task for Approve Plan
+        prompt_res2 = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Crear dashboard de analíticas"
+        }, headers=admin_headers)
+        task_id2 = prompt_res2.json()["id"]
+
+        async with TestingSessionLocal() as session:
+            q = await session.execute(select(PromptTask).where(PromptTask.id == task_id2))
+            t2 = q.scalars().first()
+            t2.status = "PLAN_PENDING"
+            t2.plan_content = "## Plan de Analíticas\n- src/Analytics.tsx"
+            await session.commit()
+
+        # Test Approve Plan
+        approve_plan_res = await ac.post(f"/api/validation/tasks/{task_id2}/approve-plan", headers=val_headers)
+        assert approve_plan_res.status_code == 200
+        assert approve_plan_res.json()["status"] in ["PLAN_APPROVED", "RUNNING", "COMPLETED"]
