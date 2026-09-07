@@ -40,11 +40,13 @@ log_error() {
 # ------------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+RUNNING_USER="${SUDO_USER:-$USER}"
 
 echo -e "${CYAN}==============================================================================${NC}"
 echo -e "${CYAN}${BOLD}     Vibe Manager AI - Script de Despliegue en Producción                     ${NC}"
 echo -e "${CYAN}==============================================================================${NC}"
-echo -e "Directorio del proyecto: ${BOLD}${PROJECT_DIR}${NC}\n"
+echo -e "Directorio del proyecto: ${BOLD}${PROJECT_DIR}${NC}"
+echo -e "Usuario de ejecución:    ${BOLD}${RUNNING_USER}${NC}\n"
 
 # Check operating system
 OS="$(uname -s)"
@@ -57,6 +59,12 @@ if [ "$OS" != "Linux" ]; then
         exit 1
     fi
 fi
+
+if [ "$RUNNING_USER" = "root" ] && [ -z "$SUDO_USER" ]; then
+    log_warn "Estás ejecutando el script directamente como usuario root."
+    log_warn "En producción es altamente recomendable usar un usuario no-root con privilegios sudo (ej: ubuntu, deploy)."
+fi
+
 
 # ------------------------------------------------------------------------------
 # 2. Prerequisites Verification
@@ -97,7 +105,7 @@ if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
         if ! command -v docker &> /dev/null; then
             log_info "Instalando Docker Engine..."
             curl -fsSL https://get.docker.com | sudo sh
-            sudo usermod -aG docker "$USER" || true
+            sudo usermod -aG docker "$RUNNING_USER" || true
             sudo systemctl enable docker
             sudo systemctl start docker
         fi
@@ -112,8 +120,8 @@ log_success "Todas las dependencias están presentes."
 # Verify Docker daemon connectivity and docker.sock permissions
 if ! docker info &> /dev/null; then
     log_warn "No se puede conectar al socket de Docker (/var/run/docker.sock) con el usuario actual."
-    log_info "Añadiendo usuario actual al grupo docker: sudo usermod -aG docker $USER"
-    sudo usermod -aG docker "$USER" || true
+    log_info "Añadiendo usuario actual al grupo docker: sudo usermod -aG docker $RUNNING_USER"
+    sudo usermod -aG docker "$RUNNING_USER" || true
     log_info "Verifica que el servicio docker esté activo con: sudo systemctl start docker"
 fi
 
