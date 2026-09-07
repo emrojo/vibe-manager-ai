@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import json
 import logging
 from typing import List, Optional
@@ -55,7 +55,7 @@ async def get_active_processes(
             "status": t.status,
             "stage": mem_info.get("stage") if mem_info else (t.execution_stage or ("En ejecución..." if t.status == "RUNNING" else t.status)),
             "duration_seconds": mem_info.get("duration_seconds") if mem_info else 0,
-            "error_message": t.error_message or (mem_info.get("error") if mem_info else None),
+            "error_message": t.error_message or (mem_info.get("error") if mem_info else None) or (t.execution_logs.strip().splitlines()[0] if t.status == "FAILED" and t.execution_logs else None),
             "branch_name": t.branch_name,
             "pr_url": t.pr_url,
             "pr_number": t.pr_number,

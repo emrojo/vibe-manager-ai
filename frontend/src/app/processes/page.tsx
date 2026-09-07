@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -66,6 +66,22 @@ export default function ProcessesPage() {
       console.error("Error cargando procesos:", err);
     } finally {
       if (showLoading) setLoading(false);
+    }
+  };
+
+  const [retryingId, setRetryingId] = useState<number | null>(null);
+
+  const handleRetry = async (taskId: number) => {
+    setRetryingId(taskId);
+    try {
+      await apiRequest(`/validation/tasks/${taskId}/retry`, {
+        method: "POST",
+      });
+      await loadProcesses(false);
+    } catch (err: any) {
+      alert(err.message || "Error al reintentar la tarea");
+    } finally {
+      setRetryingId(null);
     }
   };
 
@@ -312,6 +328,17 @@ export default function ProcessesPage() {
                         <span>PR #{proc.pr_number || "Ver"}</span>
                         <ExternalLink className="w-3 h-3" />
                       </a>
+                    )}
+
+                    {isFailed && (user?.role === "admin" || user?.role === "validator") && (
+                      <button
+                        onClick={() => handleRetry(proc.id)}
+                        disabled={retryingId === proc.id}
+                        className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${retryingId === proc.id ? "animate-spin" : ""}`} />
+                        <span>Reintentar</span>
+                      </button>
                     )}
 
                     <button

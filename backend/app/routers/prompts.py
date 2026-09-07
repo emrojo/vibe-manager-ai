@@ -14,6 +14,14 @@ from app.schemas.prompt_task import PromptTaskCreate, PromptTaskRead
 router = APIRouter(prefix="/prompts", tags=["prompts"])
 
 def map_prompt_task(task: PromptTask) -> PromptTaskRead:
+    error_msg = task.error_message
+    if not error_msg and task.status == "FAILED" and task.execution_logs:
+        cleaned_logs = task.execution_logs.strip()
+        if cleaned_logs:
+            error_msg = cleaned_logs.splitlines()[0]
+        else:
+            error_msg = "Error en la ejecución del runner"
+
     return PromptTaskRead(
         id=task.id,
         project_id=task.project_id,
@@ -33,7 +41,7 @@ def map_prompt_task(task: PromptTask) -> PromptTaskRead:
         pr_number=task.pr_number,
         execution_stage=task.execution_stage,
         execution_logs=task.execution_logs,
-        error_message=task.error_message,
+        error_message=error_msg,
         created_at=task.created_at,
         updated_at=task.updated_at
     )

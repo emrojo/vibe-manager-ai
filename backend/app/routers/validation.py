@@ -138,6 +138,8 @@ async def retry_task(
     task.status = "APPROVED"
     task.validated_by_id = current_user.id
     task.validated_at = datetime.datetime.utcnow()
+    task.execution_stage = "Reintentando ejecución..."
+    task.error_message = None
     task.execution_logs = "Reintentando ejecución..."
     await db.commit()
     await db.refresh(task)
