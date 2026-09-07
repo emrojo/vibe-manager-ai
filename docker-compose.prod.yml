@@ -1,4 +1,4 @@
-﻿# ====================================================================
+# ====================================================================
 # Vibe Manager AI - Production Docker Compose Overlay (Hardened)
 # ====================================================================
 # In production, host Nginx manages public traffic and terminates SSL.
@@ -23,6 +23,9 @@ services:
   # Frontend Next.js strictly isolated on internal docker bridge network
   frontend:
     ports: !override []
+    build:
+      args:
+        - NEXT_PUBLIC_API_URL=/api
 
   # PostgreSQL 16 database strictly isolated on internal docker bridge network
   db:

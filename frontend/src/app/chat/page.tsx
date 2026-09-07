@@ -91,7 +91,9 @@ function ChatContent() {
     if (!token || !user) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = (window.location.port === "3010" || window.location.port === "3000") ? "localhost:8000" : window.location.host;
+    // In dev (port 3010/3000) connect directly to backend; in production use same host (proxied by gateway/nginx)
+    const isDev = window.location.port === "3010" || window.location.port === "3000";
+    const host = isDev ? "localhost:8000" : window.location.host;
     const wsUrl = `${protocol}//${host}/api/chat/ws?token=${token}`;
     try {
       const ws = new WebSocket(wsUrl);

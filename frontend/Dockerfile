@@ -10,6 +10,9 @@ COPY . .
 # Ensure public directory exists
 RUN mkdir -p /app/public
 
+# Build-time env vars (NEXT_PUBLIC_* are baked into the bundle at build time)
+ARG NEXT_PUBLIC_API_URL=/api
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
