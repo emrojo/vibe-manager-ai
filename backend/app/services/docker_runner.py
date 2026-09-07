@@ -120,23 +120,27 @@ async def execute_task_sandbox(
             line_str = line_bytes.decode("utf-8", errors="replace")
             await emit_log(line_str)
 
+    container_name = f"vibe-sandbox-task-{task_id}"
+
     if use_docker:
         await emit_log("Docker daemon detectado. Ejecutando en contenedor aislado...")
         cmd = [
             "docker", "run", "--rm",
+            "--name", container_name,
             "--network", "bridge",
             "--memory", "2g",
             "-e", f"TASK_PAYLOAD_B64={payload_b64}",
             docker_image
         ]
         
-        await emit_log(f"Comando: docker run --rm --network bridge --memory 2g vibe-runner:latest")
+        await emit_log(f"Comando: docker run --rm --name {container_name} --network bridge --memory 2g vibe-runner:latest")
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
+            await task_stream_manager.register_process(task_id, proc, container_name=container_name)
             try:
                 await asyncio.wait_for(
                     asyncio.gather(
@@ -146,7 +150,7 @@ async def execute_task_sandbox(
                     timeout=settings.DOCKER_TIMEOUT_SECONDS
                 )
                 await proc.wait()
-                if proc.returncode != 0 and not error_candidate:
+                if proc.returncode != 0 and not error_candidate and not task_stream_manager.is_task_stopped(task_id):
                     error_candidate = f"El contenedor finalizó con código de salida {proc.returncode}"
             except asyncio.TimeoutError:
                 await emit_log("TIMEOUT: La ejecución del contenedor excedió el tiempo límite permitido.")
@@ -155,6 +159,8 @@ async def execute_task_sandbox(
                     proc.kill()
                 except Exception:
                     pass
+            finally:
+                await task_stream_manager.unregister_process(task_id)
         except Exception as e:
             await emit_log(f"Fallo al ejecutar contenedor Docker: {str(e)}. Intentando modo local...")
             use_docker = False
@@ -177,36 +183,54 @@ async def execute_task_sandbox(
                 stderr=asyncio.subprocess.PIPE,
                 env=env
             )
-            await asyncio.gather(
-                read_stream(proc.stdout),
-                read_stream(proc.stderr)
-            )
-            await proc.wait()
-            if proc.returncode != 0 and not error_candidate:
-                error_candidate = f"El runner local finalizó con código de error {proc.returncode}"
+            await task_stream_manager.register_process(task_id, proc, container_name=None)
+            try:
+                await asyncio.gather(
+                    read_stream(proc.stdout),
+                    read_stream(proc.stderr)
+                )
+                await proc.wait()
+                if proc.returncode != 0 and not error_candidate and not task_stream_manager.is_task_stopped(task_id):
+                    error_candidate = f"El runner local finalizó con código de error {proc.returncode}"
+            finally:
+                await task_stream_manager.unregister_process(task_id)
         except Exception as e:
             await emit_log(f"Error fatal ejecutando runner local: {str(e)}")
             error_candidate = str(e)
 
+    # Check if task was stopped
+    is_stopped = task_stream_manager.is_task_stopped(task_id)
+
     # Assemble result
-    result_data = parsed_result or {
-        "success": False,
-        "branch_name": None,
-        "commit_message": None,
-        "pr_url": None,
-        "pr_number": None,
-        "error": error_candidate or "No se pudo obtener el resultado de ejecución del sandbox."
-    }
+    if is_stopped:
+        result_data = {
+            "success": False,
+            "stopped": True,
+            "branch_name": None,
+            "commit_message": None,
+            "pr_url": None,
+            "pr_number": None,
+            "error": "Proceso cancelado/detenido manualmente por el usuario."
+        }
+    else:
+        result_data = parsed_result or {
+            "success": False,
+            "branch_name": None,
+            "commit_message": None,
+            "pr_url": None,
+            "pr_number": None,
+            "error": error_candidate or "No se pudo obtener el resultado de ejecución del sandbox."
+        }
 
-    if not parsed_result and os.path.exists(result_file_path):
-        try:
-            with open(result_file_path, "r", encoding="utf-8") as f:
-                result_data = json.load(f)
-        except Exception as e:
-            result_data["error"] = f"Error leyendo resultado: {str(e)}"
+        if not parsed_result and os.path.exists(result_file_path):
+            try:
+                with open(result_file_path, "r", encoding="utf-8") as f:
+                    result_data = json.load(f)
+            except Exception as e:
+                result_data["error"] = f"Error leyendo resultado: {str(e)}"
 
-    if not result_data.get("success") and not result_data.get("error"):
-        result_data["error"] = error_candidate or "Fallo en la ejecución de la tarea"
+        if not result_data.get("success") and not result_data.get("error"):
+            result_data["error"] = error_candidate or "Fallo en la ejecución de la tarea"
 
     result_data["logs"] = "\n".join(logs_accumulator)
 

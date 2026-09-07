@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect, useRef } from "react";
 import { 
@@ -13,8 +13,10 @@ import {
   ExternalLink,
   RefreshCw,
   Wifi,
-  WifiOff
+  WifiOff,
+  Square
 } from "lucide-react";
+import { apiRequest } from "@/lib/api";
 
 interface LiveConsoleModalProps {
   task: {
@@ -40,9 +42,26 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
   const [connected, setConnected] = useState<boolean>(false);
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [copied, setCopied] = useState<boolean>(false);
+  const [stopping, setStopping] = useState<boolean>(false);
 
   const terminalEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const handleStopProcess = async () => {
+    if (!task) return;
+    if (!confirm("¿Estás seguro de que deseas detener y abortar la ejecución de esta tarea en el sandbox?")) return;
+    setStopping(true);
+    try {
+      await apiRequest(`/processes/${task.id}/stop`, { method: "POST" });
+      setStatus("STOPPED");
+      setStage("Detenido por el usuario");
+      setErrorMessage("Proceso cancelado/detenido manualmente por el usuario.");
+    } catch (err: any) {
+      alert(err.message || "Error al detener el proceso");
+    } finally {
+      setStopping(false);
+    }
+  };
 
   useEffect(() => {
     if (!task) return;
@@ -152,6 +171,7 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
   const isRunning = status === "RUNNING";
   const isFailed = status === "FAILED";
   const isCompleted = status === "COMPLETED";
+  const isStopped = status === "STOPPED";
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
@@ -186,6 +206,10 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
                   <span className="text-[11px] text-emerald-400 font-medium">
                     ✓ Ejecución Exitosa
                   </span>
+                ) : isStopped ? (
+                  <span className="text-[11px] text-amber-400 font-medium">
+                    ⏹ Proceso Detenido
+                  </span>
                 ) : isFailed ? (
                   <span className="text-[11px] text-rose-400 font-medium">
                     ✕ Falló la Ejecución
@@ -208,6 +232,18 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
 
           {/* Action buttons */}
           <div className="flex items-center gap-2">
+            {(isRunning || status === "APPROVED" || status === "PENDING") && (
+              <button
+                onClick={handleStopProcess}
+                disabled={stopping}
+                title="Detener y matar proceso en ejecución"
+                className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                <Square className={`w-3.5 h-3.5 fill-current ${stopping ? "animate-pulse" : ""}`} />
+                <span>{stopping ? "Deteniendo..." : "Detener Proceso"}</span>
+              </button>
+            )}
+
             <button
               onClick={() => setAutoScroll(!autoScroll)}
               title={autoScroll ? "Autodesplazamiento activo" : "Activar autodesplazamiento"}
@@ -247,6 +283,21 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
             </button>
           </div>
         </div>
+
+        {/* Prominent Stopped Banner */}
+        {isStopped && (
+          <div className="mx-4 mt-4 p-3.5 bg-amber-500/15 border border-amber-500/30 rounded-xl flex items-start gap-3 text-amber-200 animate-in fade-in">
+            <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-1">
+              <strong className="text-amber-300 text-sm font-semibold block">
+                Proceso Detenido Manualmente
+              </strong>
+              <p className="font-mono whitespace-pre-wrap leading-relaxed">
+                {errorMessage || "El proceso fue cancelado o abortado por el usuario."}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Prominent Error Banner */}
         {isFailed && (

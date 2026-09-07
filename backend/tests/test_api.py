@@ -229,3 +229,24 @@ async def test_full_workflow():
         assert edited_proj["name"] == "Proyecto Tienda Modificado"
         assert edited_proj["default_branch"] == "develop"
         assert edited_proj["is_active"] == False
+
+        # 19. Stop / cancel a process
+        # Reactivate project
+        await ac.put(f"/api/projects/{proj_id}", json={"is_active": True}, headers=admin_headers)
+
+        # Create a new prompt task to cancel
+        res = await ac.post("/api/prompts", json={"project_id": proj_id, "prompt": "Tarea para probar cancelación"}, headers=alice_headers)
+        assert res.status_code == 200
+        stop_task_id = res.json()["id"]
+
+        # Call stop process endpoint
+        res = await ac.post(f"/api/processes/{stop_task_id}/stop", headers=alice_headers)
+        assert res.status_code == 200
+        stop_resp = res.json()
+        assert stop_resp["success"] == True
+        assert stop_resp["status"] == "STOPPED"
+
+        # Verify details show STOPPED
+        res = await ac.get(f"/api/processes/{stop_task_id}/details", headers=alice_headers)
+        assert res.status_code == 200
+        assert res.json()["status"] == "STOPPED"

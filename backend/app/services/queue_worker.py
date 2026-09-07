@@ -96,7 +96,11 @@ async def process_prompt_task(task_id: int):
         task.pr_url = runner_result.get("pr_url")
         task.pr_number = runner_result.get("pr_number")
         
-        if runner_result.get("success"):
+        if runner_result.get("stopped") or task.status == "STOPPED":
+            task.status = "STOPPED"
+            task.execution_stage = "Detenido por el usuario"
+            task.error_message = runner_result.get("error") or "Proceso cancelado/detenido manualmente."
+        elif runner_result.get("success"):
             task.status = "COMPLETED"
             task.execution_stage = "COMPLETED"
             task.error_message = None

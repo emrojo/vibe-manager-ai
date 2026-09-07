@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import datetime
 import json
 import logging
@@ -15,6 +15,9 @@ class TaskStreamManager:
         self._active_tasks: Dict[int, Dict[str, Any]] = {}
         self._task_logs: Dict[int, List[str]] = {}
         self._subscribers: Dict[int, Set[asyncio.Queue]] = {}
+        self._running_processes: Dict[int, Any] = {}
+        self._running_containers: Dict[int, str] = {}
+        self._stopped_tasks: Set[int] = set()
         self._lock = asyncio.Lock()
 
     async def start_task(
@@ -123,6 +126,57 @@ class TaskStreamManager:
                 q.put_nowait(msg)
             except Exception:
                 pass
+
+    async def register_process(self, task_id: int, proc: Any, container_name: Optional[str] = None):
+        async with self._lock:
+            self._running_processes[task_id] = proc
+            if container_name:
+                self._running_containers[task_id] = container_name
+
+    async def unregister_process(self, task_id: int):
+        async with self._lock:
+            self._running_processes.pop(task_id, None)
+            self._running_containers.pop(task_id, None)
+
+    def is_task_stopped(self, task_id: int) -> bool:
+        return task_id in self._stopped_tasks
+
+    async def stop_task(self, task_id: int) -> bool:
+        async with self._lock:
+            self._stopped_tasks.add(task_id)
+            proc = self._running_processes.get(task_id)
+            container_name = self._running_containers.get(task_id)
+
+        await self.publish_log(task_id, "⛔ [Vibe Manager] Detención solicitada: Abortando sandbox y liberando recursos...")
+
+        # 1. Kill Docker container if running
+        if container_name:
+            try:
+                kill_proc = await asyncio.create_subprocess_exec(
+                    "docker", "kill", container_name,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL
+                )
+                await asyncio.wait_for(kill_proc.wait(), timeout=3.0)
+            except Exception as e:
+                logger.warning(f"Error matando contenedor {container_name}: {e}")
+
+        # 2. Terminate / kill local or docker-exec subprocess
+        if proc:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            except Exception as e:
+                logger.warning(f"Error matando subproceso para tarea #{task_id}: {e}")
+
+        # 3. Mark finished with STOPPED
+        await self.finish_task(
+            task_id=task_id,
+            status="STOPPED",
+            error="Proceso detenido manualmente por el usuario."
+        )
+        return True
 
     def get_active_tasks(self) -> List[Dict[str, Any]]:
         tasks = []

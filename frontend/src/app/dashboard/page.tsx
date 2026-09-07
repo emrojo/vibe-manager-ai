@@ -17,7 +17,8 @@ import {
   ExternalLink,
   Info,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Square
 } from "lucide-react";
 import LiveConsoleModal from "@/components/LiveConsoleModal";
 
@@ -118,6 +119,21 @@ export default function DashboardPage() {
     }
   };
 
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+
+  const handleCancelTask = async (taskId: number) => {
+    if (!confirm("¿Deseas cancelar y detener esta tarea?")) return;
+    setCancellingId(taskId);
+    try {
+      await apiRequest(`/processes/${taskId}/stop`, { method: "POST" });
+      await loadPrompts();
+    } catch (err: any) {
+      alert(err.message || "Error al cancelar la tarea");
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   const selectedProject = projects.find((p) => p.id === Number(selectedProjectId));
 
   const getStatusBadge = (status: PromptTask["status"]) => {
@@ -144,6 +160,12 @@ export default function DashboardPage() {
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
             <GitPullRequest className="w-3.5 h-3.5" /> PR Creado
+          </span>
+        );
+      case "STOPPED":
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <Square className="w-3.5 h-3.5 fill-current" /> Detenido
           </span>
         );
       case "REJECTED":
@@ -383,23 +405,37 @@ export default function DashboardPage() {
                       )}
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      {task.status === "RUNNING" ? (
-                        <button
-                          onClick={() => setSelectedTaskLogs(task)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold shadow-sm transition-all"
-                        >
-                          <Terminal className="w-3.5 h-3.5 animate-pulse" />
-                          <span>Consola en Vivo</span>
-                        </button>
-                      ) : (task.execution_logs || task.status === "FAILED" || task.status === "COMPLETED") ? (
-                        <button
-                          onClick={() => setSelectedTaskLogs(task)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 transition-colors"
-                        >
-                          <Terminal className="w-3.5 h-3.5" />
-                          <span>Consola</span>
-                        </button>
-                      ) : null}
+                      <div className="flex items-center justify-end gap-2">
+                        {(task.status === "RUNNING" || task.status === "APPROVED" || task.status === "PENDING") && (
+                          <button
+                            onClick={() => handleCancelTask(task.id)}
+                            disabled={cancellingId === task.id}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-all disabled:opacity-50"
+                            title="Cancelar / Detener proceso"
+                          >
+                            <Square className={`w-3 h-3 fill-current ${cancellingId === task.id ? "animate-pulse" : ""}`} />
+                            <span>{cancellingId === task.id ? "Cancelando..." : "Cancelar"}</span>
+                          </button>
+                        )}
+
+                        {task.status === "RUNNING" ? (
+                          <button
+                            onClick={() => setSelectedTaskLogs(task)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold shadow-sm transition-all"
+                          >
+                            <Terminal className="w-3.5 h-3.5 animate-pulse" />
+                            <span>Consola en Vivo</span>
+                          </button>
+                        ) : (task.execution_logs || task.status === "FAILED" || task.status === "STOPPED" || task.status === "COMPLETED") ? (
+                          <button
+                            onClick={() => setSelectedTaskLogs(task)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition-colors"
+                          >
+                            <Terminal className="w-3.5 h-3.5" />
+                            <span>Consola</span>
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}

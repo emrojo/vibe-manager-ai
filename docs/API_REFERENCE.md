@@ -406,3 +406,19 @@ All HTTP errors return standard JSON formatted according to FastAPI/Starlette st
   - Emits `stage` event when phase changes (e.g., *Cloning*, *Invoking Gemini*, *Pushing PR*).
   - Emits `finish` event when execution completes or fails, with final status and concise `error` message.
 
+### 8.4 Stop / Kill Process
+- **Endpoint:** `POST /api/processes/{task_id}/stop`
+- **Access:** Task owner, `validator`, or `admin`
+- **Behavior:**
+  - If task is in queue (`PENDING` or `APPROVED`), transitions immediately to `STOPPED` and cancels runner.
+  - If task is actively executing (`RUNNING`), sends termination signal to subprocess, executes `docker kill vibe-sandbox-task-{task_id}`, logs termination event, and marks database state as `STOPPED`.
+- **Response (200 OK):**
+  ```json
+  {
+    "success": true,
+    "message": "Proceso #15 detenido y sandbox abortado correctamente.",
+    "task_id": 15,
+    "status": "STOPPED"
+  }
+  ```
+

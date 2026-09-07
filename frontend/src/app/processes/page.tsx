@@ -15,7 +15,8 @@ import {
   GitPullRequest, 
   ExternalLink,
   Layers,
-  Server
+  Server,
+  Square
 } from "lucide-react";
 
 interface ProcessItem {
@@ -26,7 +27,7 @@ interface ProcessItem {
   user_name: string;
   original_prompt: string;
   edited_prompt?: string;
-  status: "PENDING" | "APPROVED" | "RUNNING" | "COMPLETED" | "FAILED" | "REJECTED";
+  status: "PENDING" | "APPROVED" | "RUNNING" | "COMPLETED" | "FAILED" | "REJECTED" | "STOPPED";
   stage?: string;
   duration_seconds: number;
   error_message?: string;
@@ -82,6 +83,23 @@ export default function ProcessesPage() {
       alert(err.message || "Error al reintentar la tarea");
     } finally {
       setRetryingId(null);
+    }
+  };
+
+  const [stoppingId, setStoppingId] = useState<number | null>(null);
+
+  const handleStopProcess = async (taskId: number) => {
+    if (!confirm("¿Deseas detener y abortar la ejecución de este proceso inmediatamente?")) return;
+    setStoppingId(taskId);
+    try {
+      await apiRequest(`/processes/${taskId}/stop`, {
+        method: "POST",
+      });
+      await loadProcesses(false);
+    } catch (err: any) {
+      alert(err.message || "Error al detener el proceso");
+    } finally {
+      setStoppingId(null);
     }
   };
 
@@ -248,8 +266,9 @@ export default function ProcessesPage() {
         <div className="space-y-4">
           {filteredProcesses.map((proc) => {
             const isRunning = proc.status === "RUNNING";
-            const isFailed = proc.status === "FAILED";
             const isCompleted = proc.status === "COMPLETED";
+            const isFailed = proc.status === "FAILED";
+            const isStopped = proc.status === "STOPPED";
 
             return (
               <div
@@ -259,6 +278,8 @@ export default function ProcessesPage() {
                     ? "border-indigo-500/40 ring-1 ring-indigo-500/20"
                     : isFailed
                     ? "border-rose-500/30"
+                    : isStopped
+                    ? "border-amber-500/30 bg-amber-950/5"
                     : "border-slate-800 hover:border-slate-700"
                 }`}
               >
@@ -296,12 +317,14 @@ export default function ProcessesPage() {
                           ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40"
                           : isCompleted
                           ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                          : isStopped
+                          ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
                           : isFailed
                           ? "bg-rose-500/10 text-rose-400 border border-rose-500/20"
                           : "bg-slate-800 text-slate-400 border border-slate-700"
                       }`}
                     >
-                      {proc.status}
+                      {proc.status === "STOPPED" ? "DETENIDO" : proc.status}
                     </span>
                   </div>
                 </div>
@@ -330,7 +353,19 @@ export default function ProcessesPage() {
                       </a>
                     )}
 
-                    {isFailed && (user?.role === "admin" || user?.role === "validator") && (
+                    {(isRunning || proc.status === "PENDING" || proc.status === "APPROVED") && (
+                      <button
+                        onClick={() => handleStopProcess(proc.id)}
+                        disabled={stoppingId === proc.id}
+                        className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
+                        title="Detener y matar proceso en ejecución"
+                      >
+                        <Square className={`w-3.5 h-3.5 fill-current ${stoppingId === proc.id ? "animate-pulse" : ""}`} />
+                        <span>{stoppingId === proc.id ? "Deteniendo..." : "Detener Proceso"}</span>
+                      </button>
+                    )}
+
+                    {(isFailed || isStopped) && (user?.role === "admin" || user?.role === "validator" || user?.id === proc.user_id) && (
                       <button
                         onClick={() => handleRetry(proc.id)}
                         disabled={retryingId === proc.id}
@@ -354,6 +389,21 @@ export default function ProcessesPage() {
                     </button>
                   </div>
                 </div>
+
+                {/* Stopped Banner */}
+                {isStopped && (
+                  <div className="mt-3 p-3 bg-amber-500/10 border border-amber-500/25 rounded-xl text-xs text-amber-300 flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <strong className="text-amber-400 font-semibold block">
+                        Proceso Detenido Manualmente:
+                      </strong>
+                      <p className="font-mono text-amber-200/90 whitespace-pre-wrap leading-relaxed text-[11px]">
+                        {proc.error_message || "La tarea fue cancelada o detenida por el usuario."}
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Prominent Error Banner if Failed */}
                 {isFailed && (

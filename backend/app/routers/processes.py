@@ -55,7 +55,7 @@ async def get_active_processes(
             "status": t.status,
             "stage": mem_info.get("stage") if mem_info else (t.execution_stage or ("En ejecución..." if t.status == "RUNNING" else t.status)),
             "duration_seconds": mem_info.get("duration_seconds") if mem_info else 0,
-            "error_message": t.error_message or (mem_info.get("error") if mem_info else None) or (t.execution_logs.strip().splitlines()[0] if t.status == "FAILED" and t.execution_logs else None),
+            "error_message": t.error_message or (mem_info.get("error") if mem_info else None) or (t.execution_logs.strip().splitlines()[0] if t.status in ("FAILED", "STOPPED") and t.execution_logs else None),
             "branch_name": t.branch_name,
             "pr_url": t.pr_url,
             "pr_number": t.pr_number,
@@ -65,7 +65,8 @@ async def get_active_processes(
 
     return {
         "running_count": sum(1 for item in items if item["status"] == "RUNNING"),
-        "pending_count": sum(1 for item in items if item["status"] == "PENDING"),
+        "pending_count": sum(1 for item in items if item["status"] in ("PENDING", "APPROVED")),
+        "stopped_count": sum(1 for item in items if item["status"] == "STOPPED"),
         "processes": items
     }
 
@@ -102,6 +103,66 @@ async def get_process_details(
         "created_at": task.created_at.isoformat(),
         "updated_at": task.updated_at.isoformat()
     }
+
+@router.post("/{task_id}/stop")
+async def stop_process(
+    task_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Stops/cancels a running or queued task immediately.
+    Kills the running Docker container or subprocess, and updates database to STOPPED.
+    """
+    result = await db.execute(
+        select(PromptTask)
+        .options(selectinload(PromptTask.project), selectinload(PromptTask.user))
+        .where(PromptTask.id == task_id)
+    )
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Tarea no encontrada")
+
+    # Permissions: admin, validator, or task author
+    if current_user.role not in ("admin", "validator") and task.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="No tienes permisos para detener esta tarea")
+
+    if task.status in ("COMPLETED", "FAILED", "STOPPED", "REJECTED"):
+        raise HTTPException(status_code=400, detail=f"La tarea ya está finalizada con estado {task.status}")
+
+    # Case 1: Task in queue (PENDING or APPROVED)
+    if task.status in ("PENDING", "APPROVED"):
+        task.status = "STOPPED"
+        task.execution_stage = "Cancelado antes de ejecución"
+        task.error_message = "Tarea cancelada manualmente por el usuario antes de iniciar el sandbox."
+        task.execution_logs = (task.execution_logs or "") + "\n[Vibe Manager] Tarea cancelada por el usuario antes de ejecutarse."
+        await db.commit()
+        await db.refresh(task)
+        await task_stream_manager.finish_task(task_id, "STOPPED", error=task.error_message)
+        return {
+            "success": True,
+            "message": f"Tarea #{task_id} cancelada correctamente antes de ejecución.",
+            "task_id": task_id,
+            "status": "STOPPED"
+        }
+
+    # Case 2: Task is RUNNING
+    if task.status == "RUNNING":
+        await task_stream_manager.stop_task(task_id)
+        task.status = "STOPPED"
+        task.execution_stage = "Detenido por el usuario"
+        task.error_message = "Proceso cancelado/detenido manualmente por el usuario."
+        task.execution_logs = (task.execution_logs or "") + "\n⛔ [Vibe Manager] Proceso detenido manualmente por el usuario."
+        await db.commit()
+        await db.refresh(task)
+        return {
+            "success": True,
+            "message": f"Proceso #{task_id} detenido y sandbox abortado correctamente.",
+            "task_id": task_id,
+            "status": "STOPPED"
+        }
+
+    return {"success": False, "message": "Estado no gestionable"}
 
 @router.websocket("/{task_id}/console")
 async def stream_task_console(websocket: WebSocket, task_id: int):
