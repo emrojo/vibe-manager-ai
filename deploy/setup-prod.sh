@@ -118,11 +118,25 @@ fi
 log_success "Todas las dependencias están presentes."
 
 # Verify Docker daemon connectivity and docker.sock permissions
+DOCKER_CMD="docker"
 if ! docker info &> /dev/null; then
     log_warn "No se puede conectar al socket de Docker (/var/run/docker.sock) con el usuario actual."
     log_info "Añadiendo usuario actual al grupo docker: sudo usermod -aG docker $RUNNING_USER"
     sudo usermod -aG docker "$RUNNING_USER" || true
-    log_info "Verifica que el servicio docker esté activo con: sudo systemctl start docker"
+
+    if sudo docker info &> /dev/null; then
+        DOCKER_CMD="sudo docker"
+        log_info "Usando 'sudo docker' durante la instalación (la sesión actual aún no ha cargado el grupo 'docker')."
+    else
+        log_info "Iniciando servicio docker: sudo systemctl start docker"
+        sudo systemctl start docker || true
+        if sudo docker info &> /dev/null; then
+            DOCKER_CMD="sudo docker"
+        else
+            log_error "No se puede conectar al daemon de Docker ni con sudo. Revisa: sudo systemctl status docker"
+            exit 1
+        fi
+    fi
 fi
 
 # ------------------------------------------------------------------------------
@@ -217,14 +231,15 @@ fi
 # 4. Build Sandbox Runner Image
 # ------------------------------------------------------------------------------
 log_info "Construyendo la imagen aislada del runner sandbox (vibe-runner:latest)..."
-(cd "${PROJECT_DIR}" && docker build -t vibe-runner:latest ./runner)
+export DOCKER_BUILDKIT=1
+(cd "${PROJECT_DIR}" && $DOCKER_CMD build -t vibe-runner:latest ./runner)
 log_success "Imagen vibe-runner:latest construida correctamente."
 
 # ------------------------------------------------------------------------------
 # 5. Build and Test Docker Compose Stack
 # ------------------------------------------------------------------------------
 log_info "Construyendo imágenes de producción (backend, frontend, gateway)..."
-(cd "${PROJECT_DIR}" && docker compose -f docker-compose.yml -f docker-compose.prod.yml build)
+(cd "${PROJECT_DIR}" && $DOCKER_CMD compose -f docker-compose.yml -f docker-compose.prod.yml build)
 log_success "Contenedores de producción compilados con éxito."
 
 # ------------------------------------------------------------------------------
@@ -450,5 +465,12 @@ echo ""
 echo -e "4. ${BOLD}Backup Diario de Base de Datos (Cron):${NC}"
 echo -e "   Añade a tu crontab (${BOLD}crontab -e${NC}):"
 echo -e "   ${BOLD}0 3 * * * ${PROJECT_DIR}/stack backup /var/backups/vibe_db_\$(date +\\%F).sql${NC}"
+if [ "$DOCKER_CMD" = "sudo docker" ]; then
+    echo ""
+    echo -e "${YELLOW}${BOLD}[AVISO SOBRE GRUPO DOCKER]${NC}"
+    echo -e "Tu usuario (${RUNNING_USER}) fue añadido al grupo 'docker'."
+    echo -e "Para poder usar comandos 'docker' sin 'sudo' en tu terminal habitual, ejecuta ahora:"
+    echo -e "   ${BOLD}newgrp docker${NC}  (o cierra la sesión y vuelve a conectarte por SSH)"
+fi
 echo ""
 echo -e "${GREEN}==============================================================================${NC}"
