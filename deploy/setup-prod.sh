@@ -84,26 +84,17 @@ check_command git
 check_command openssl
 check_command nginx
 
-# Check docker compose plugin (v2)
-if command -v docker &> /dev/null; then
-    if ! docker compose version &> /dev/null; then
-        MISSING_PACKAGES+=("docker-compose-plugin")
-    fi
-fi
-
 if [ ${#MISSING_PACKAGES[@]} -gt 0 ]; then
     log_warn "Faltan paquetes necesarios: ${MISSING_PACKAGES[*]}"
     echo -e "Puedes instalarlos con:"
     echo -e "${BOLD}sudo apt update && sudo apt install -y curl git openssl nginx certbot python3-certbot-nginx${NC}"
-    echo -e "Para instalar Docker Engine oficial y Docker Compose:"
-    echo -e "${BOLD}curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker \$USER${NC}"
     echo ""
     read -rp "¿Deseas que este script intente instalar los paquetes faltantes vía apt? [s/N]: " install_deps
     if [[ "$install_deps" =~ ^[sSyY]$ ]]; then
         sudo apt update
         sudo apt install -y curl git openssl nginx certbot python3-certbot-nginx
         if ! command -v docker &> /dev/null; then
-            log_info "Instalando Docker Engine..."
+            log_info "Instalando Docker Engine oficial y Docker Compose..."
             curl -fsSL https://get.docker.com | sudo sh
             sudo usermod -aG docker "$RUNNING_USER" || true
             sudo systemctl enable docker
@@ -137,6 +128,41 @@ if ! docker info &> /dev/null; then
             exit 1
         fi
     fi
+fi
+
+# Verify and ensure Docker Compose v2 is available
+if ! $DOCKER_CMD compose version &> /dev/null; then
+    log_warn "Docker Compose v2 no está instalado o no se reconoce como plugin de Docker."
+    log_info "Instalando Docker Compose v2..."
+
+    # 1. Try Ubuntu / Debian apt packages
+    sudo apt update && (sudo apt install -y docker-compose-v2 2>/dev/null || sudo apt install -y docker-compose-plugin 2>/dev/null || sudo apt install -y docker-compose 2>/dev/null || true)
+
+    # 2. If still missing, download official Docker Compose CLI plugin directly to plugin paths
+    if ! $DOCKER_CMD compose version &> /dev/null; then
+        log_info "Instalando plugin oficial Docker Compose v2 en los directorios de plugins de Docker..."
+        ARCH="$(uname -m)"
+        sudo mkdir -p /usr/local/lib/docker/cli-plugins /usr/libexec/docker/cli-plugins /usr/lib/docker/cli-plugins
+        sudo curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${ARCH}" -o /usr/local/lib/docker/cli-plugins/docker-compose
+        sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+        sudo cp -f /usr/local/lib/docker/cli-plugins/docker-compose /usr/libexec/docker/cli-plugins/docker-compose 2>/dev/null || true
+        sudo cp -f /usr/local/lib/docker/cli-plugins/docker-compose /usr/lib/docker/cli-plugins/docker-compose 2>/dev/null || true
+        sudo ln -sf /usr/local/lib/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose 2>/dev/null || true
+        sudo ln -sf /usr/local/lib/docker/cli-plugins/docker-compose /usr/bin/docker-compose 2>/dev/null || true
+    fi
+
+    if ! $DOCKER_CMD compose version &> /dev/null; then
+        log_error "No se pudo inicializar Docker Compose v2. Por favor instala docker-compose-v2 o docker-compose-plugin."
+        exit 1
+    fi
+    log_success "Docker Compose v2 instalado y verificado correctamente."
+else
+    log_success "Docker Compose v2 detectado correctamente."
+fi
+
+# Try to enable buildx if missing to avoid legacy builder deprecation
+if ! $DOCKER_CMD buildx version &> /dev/null; then
+    sudo apt install -y docker-buildx-plugin docker-buildx 2>/dev/null || true
 fi
 
 # ------------------------------------------------------------------------------
