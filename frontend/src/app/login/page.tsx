@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
@@ -15,6 +15,22 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Secure by default: never show demo credentials until backend confirms dev mode
+  const [showDemoCredentials, setShowDemoCredentials] = useState(false);
+
+  useEffect(() => {
+    // Ask the backend whether to show demo credentials (only in dev + seed_demo_data mode)
+    apiRequest<{ environment: string; show_demo_credentials: boolean }>("/system/config", {
+      method: "GET",
+    })
+      .then((config) => {
+        setShowDemoCredentials(config.show_demo_credentials === true);
+      })
+      .catch(() => {
+        // On any error (network, server), keep credentials hidden (secure by default)
+        setShowDemoCredentials(false);
+      });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,14 +124,16 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Credentials Tip */}
-        <div className="mt-6 p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 text-xs text-slate-400">
-          <span className="font-semibold text-indigo-400">Credenciales Admin por defecto:</span>
-          <br />
-          Email: <code className="text-slate-200">admin@vibemanager.ai</code>
-          <br />
-          Password: <code className="text-slate-200">Admin1234!</code>
-        </div>
+        {/* Demo Credentials — only visible in development with seed data enabled */}
+        {showDemoCredentials && (
+          <div className="mt-6 p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 text-xs text-slate-400">
+            <span className="font-semibold text-indigo-400">Credenciales Admin por defecto:</span>
+            <br />
+            Email: <code className="text-slate-200">admin@vibemanager.ai</code>
+            <br />
+            Password: <code className="text-slate-200">Admin1234!</code>
+          </div>
+        )}
 
         <div className="mt-6 text-center text-sm text-slate-400">
           ¿Tienes una invitación?{" "}

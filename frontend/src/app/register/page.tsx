@@ -181,7 +181,7 @@ function RegisterContent() {
                   setIsInviteValid(null);
                 }}
                 onBlur={handleManualCodeBlur}
-                placeholder="Ej: VIBE-WELCOME o VIBE-A1B2"
+                placeholder="Ej: VIBE-A1B2-C3D4"
                 className={`w-full bg-slate-950 border rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none transition-all ${
                   isInviteValid === true
                     ? "border-emerald-500 focus:border-emerald-500"
