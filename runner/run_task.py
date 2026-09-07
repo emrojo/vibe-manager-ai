@@ -42,7 +42,7 @@ def call_gemini(
     prompt: str,
     project_name: str,
     api_key: str,
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3.6-flash",
     file_tree: Optional[List[str]] = None,
     rules: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -61,7 +61,6 @@ def call_gemini(
             ]
         }
 
-    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     system_instruction = (
         "Eres un ingeniero de software senior que aplica cambios a un proyecto de código. "
         "Devuelve EXCLUSIVAMENTE un JSON con: commit_message, pr_title, pr_body y "
@@ -90,16 +89,36 @@ def call_gemini(
         }
     }
 
+    # Fallback chain in case a model is restricted or deprecated for the account
+    models_to_try = [model]
+    for fallback in ["gemini-3.6-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
+        if fallback not in models_to_try:
+            models_to_try.append(fallback)
+
+    last_error = None
     with httpx.Client(timeout=90.0) as client:
-        res = client.post(endpoint, json=payload)
-        if res.status_code != 200:
-            raise RuntimeError(f"Error llamando a Gemini ({res.status_code}): {res.text}")
-        data = res.json()
-        raw_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        if raw_text.startswith("```"):
-            raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
-            raw_text = re.sub(r"\s*```$", "", raw_text)
-        return json.loads(raw_text)
+        for current_model in models_to_try:
+            endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
+            log(f"Invocando Google Gemini API con modelo: {current_model}...")
+            res = client.post(endpoint, json=payload)
+            if res.status_code == 200:
+                data = res.json()
+                raw_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                if raw_text.startswith("```"):
+                    raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+                    raw_text = re.sub(r"\s*```$", "", raw_text)
+                return json.loads(raw_text)
+
+            error_text = res.text
+            log(f"Aviso: El modelo {current_model} devolvió ({res.status_code}): {error_text}")
+            last_error = f"Error llamando a Gemini ({res.status_code}): {error_text}"
+            if res.status_code in (400, 404):
+                log("Intentando con el siguiente modelo disponible en la cadena...")
+                continue
+            else:
+                break
+
+        raise RuntimeError(last_error or "Error desconocido al invocar Gemini API")
 
 def main():
     log("Iniciando runner de ejecución en sandbox...")
@@ -135,7 +154,7 @@ def main():
     prompt = task_data.get("prompt") or os.getenv("PROMPT", "")
     task_id = task_data.get("task_id") or os.getenv("TASK_ID", secrets.token_hex(4))
     gemini_api_key = task_data.get("gemini_api_key") or os.getenv("GEMINI_API_KEY", "")
-    gemini_model = task_data.get("gemini_model") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    gemini_model = task_data.get("gemini_model") or os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
     project_rules = task_data.get("project_rules") or os.getenv("PROJECT_RULES", "")
     output_file = task_data.get("output_file") or os.getenv("OUTPUT_FILE", "/runner_workspace/result.json")
 

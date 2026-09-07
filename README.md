@@ -57,7 +57,7 @@
    - User governance: Ban, readmit, and grant/revoke the **Validator** role.
    - **Invitation Engine**: Generates secure codes (`VIBE-XXXX`) and token links with one-click sharing for **WhatsApp** and **Email**.
    - **GitHub Repositories Manager & Editor**: View all repositories, search/filter, modify repository parameters (Name, URL, default branch, PAT, AI system rules), and quickly toggle repository active/paused status.
-   - **Google Gemini AI Settings**: Hot-swap Gemini API Keys and select active AI models (`gemini-2.5-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`).
+   - **Google Gemini AI Settings**: Hot-swap Gemini API Keys and select active AI models (`gemini-3.6-flash`, `gemini-1.5-flash`, `gemini-1.5-pro`, `gemini-2.5-flash`).
    - Metrics dashboard: Live counters for users, pending prompts, running containers, and opened PRs.
 
 7. **Integrated Real-Time Chat (`/chat`)**:
@@ -209,7 +209,7 @@ DEFAULT_ADMIN_PASSWORD=Admin1234!
 
 # Google Gemini AI
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.6-flash
 
 # GitHub Fallback Token (optional)
 GITHUB_TOKEN=your_github_pat_here

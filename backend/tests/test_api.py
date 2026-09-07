@@ -184,10 +184,10 @@ async def test_full_workflow():
         gemini_info = res.json()
         assert "configured" in gemini_info
 
-        res = await ac.post("/api/admin/settings/gemini", json={"api_key": "AIzaSyTestKey12345", "model": "gemini-2.5-flash"}, headers=admin_headers)
+        res = await ac.post("/api/admin/settings/gemini", json={"api_key": "AIzaSyTestKey12345", "model": "gemini-3.6-flash"}, headers=admin_headers)
         assert res.status_code == 200
         assert res.json()["configured"] == True
-        assert res.json()["model"] == "gemini-2.5-flash"
+        assert res.json()["model"] == "gemini-3.6-flash"
 
         # 15. User personal Pull Requests endpoint
         # Re-login Alice to get valid token

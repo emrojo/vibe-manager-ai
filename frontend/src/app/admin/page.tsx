@@ -68,10 +68,10 @@ export default function AdminPage() {
   const [geminiConfig, setGeminiConfig] = useState<{ configured: boolean; masked_key: string; model: string }>({
     configured: false,
     masked_key: "",
-    model: "gemini-2.5-flash",
+    model: "gemini-3.6-flash",
   });
   const [geminiKeyInput, setGeminiKeyInput] = useState("");
-  const [geminiModelInput, setGeminiModelInput] = useState("gemini-2.5-flash");
+  const [geminiModelInput, setGeminiModelInput] = useState("gemini-3.6-flash");
   const [savingGemini, setSavingGemini] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -97,14 +97,14 @@ export default function AdminPage() {
         apiRequest<User[]>("/admin/users"),
         apiRequest<Invitation[]>("/admin/invitations"),
         apiRequest<Project[]>("/projects"),
-        apiRequest<any>("/admin/settings/gemini").catch(() => ({ configured: false, masked_key: "", model: "gemini-2.5-flash" })),
+        apiRequest<any>("/admin/settings/gemini").catch(() => ({ configured: false, masked_key: "", model: "gemini-3.6-flash" })),
       ]);
       setStats(statsData);
       setUsersList(usersData);
       setInvitesList(invitesData);
       setProjectsList(projsData);
       setGeminiConfig(geminiData);
-      setGeminiModelInput(geminiData.model || "gemini-2.5-flash");
+      setGeminiModelInput(geminiData.model || "gemini-3.6-flash");
     } catch (err: any) {
       console.error("Error cargando consola admin:", err);
     } finally {
@@ -992,9 +992,10 @@ export default function AdminPage() {
                     onChange={(e) => setGeminiModelInput(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
                   >
-                    <option value="gemini-2.5-flash">gemini-2.5-flash (Recomendado - Rápido y Preciso)</option>
+                    <option value="gemini-3.6-flash">gemini-3.6-flash (Recomendado - Nueva Generación)</option>
                     <option value="gemini-1.5-flash">gemini-1.5-flash (Ultra Rápido)</option>
                     <option value="gemini-1.5-pro">gemini-1.5-pro (Razonamiento Complejo)</option>
+                    <option value="gemini-2.5-flash">gemini-2.5-flash (Legacy / Cuentas Antiguas)</option>
                   </select>
                   <span className="text-[11px] text-slate-500 block mt-1">
                     Modelo invocado por el contenedor Docker para planificar y editar código.

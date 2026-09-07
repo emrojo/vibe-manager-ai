@@ -59,7 +59,7 @@ services:
       - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-admin@vibemanager.ai}
       - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-Admin1234!}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.6-flash}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - DOCKER_RUNNER_IMAGE=vibe-runner:latest
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost}

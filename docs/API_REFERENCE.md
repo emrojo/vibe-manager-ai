@@ -174,11 +174,12 @@ All HTTP errors return standard JSON formatted according to FastAPI/Starlette st
   ```json
   {
     "has_api_key": true,
-    "active_model": "gemini-2.5-flash",
+    "active_model": "gemini-3.6-flash",
     "available_models": [
-      "gemini-2.5-flash",
+      "gemini-3.6-flash",
       "gemini-1.5-flash",
-      "gemini-1.5-pro"
+      "gemini-1.5-pro",
+      "gemini-2.5-flash"
     ]
   }
   ```
@@ -190,7 +191,7 @@ All HTTP errors return standard JSON formatted according to FastAPI/Starlette st
   ```json
   {
     "api_key": "AIzaSy...",
-    "model": "gemini-2.5-flash"
+    "model": "gemini-3.6-flash"
   }
   ```
 - **Response (200 OK):** Returns success status and updated configuration summary.
