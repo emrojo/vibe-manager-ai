@@ -7,6 +7,9 @@ RUN npm install
 
 COPY . .
 
+# Ensure public directory exists
+RUN mkdir -p /app/public
+
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
