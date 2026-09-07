@@ -1,9 +1,10 @@
+﻿# ====================================================================
+# Vibe Manager AI - Production Docker Compose Overlay (Hardened)
 # ====================================================================
-# Vibe Manager AI - Production Docker Compose Overlay
-# ====================================================================
-# In production, host Nginx manages public ports 80 and 443 with SSL.
-# This compose file binds all container ports to 127.0.0.1 so that
-# internal microservices and databases are never exposed to the internet.
+# In production, host Nginx manages public traffic and terminates SSL.
+# Only the unified internal gateway is exposed, and strictly to 127.0.0.1:8080.
+# All internal services (backend, frontend, PostgreSQL) have ZERO host ports
+# exposed (!override []), communicating strictly via vibe_stack_network.
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
@@ -12,20 +13,17 @@
 services:
   # Internal Reverse Proxy Gateway bound only to loopback
   gateway:
-    ports:
-      - "127.0.0.1:8080:80"
+    ports: !override
+      - 127.0.0.1:8080:80
 
-  # Backend API bound only to loopback
+  # Backend API strictly isolated on internal docker bridge network
   backend:
-    ports:
-      - "127.0.0.1:8000:8000"
+    ports: !override []
 
-  # Frontend Next.js bound only to loopback
+  # Frontend Next.js strictly isolated on internal docker bridge network
   frontend:
-    ports:
-      - "127.0.0.1:3010:3010"
+    ports: !override []
 
-  # PostgreSQL 16 database bound only to loopback
+  # PostgreSQL 16 database strictly isolated on internal docker bridge network
   db:
-    ports:
-      - "127.0.0.1:5432:5432"
+    ports: !override []

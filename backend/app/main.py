@@ -91,36 +91,39 @@ async def lifespan(app: FastAPI):
             await db.commit()
             await db.refresh(admin_user)
 
-        # Check default invitation code
-        inv_res = await db.execute(select(Invitation).where(Invitation.code == "VIBE-WELCOME"))
-        if not inv_res.scalars().first():
-            logger.info("Creando código de bienvenida inicial: VIBE-WELCOME")
-            default_inv = Invitation(
-                code="VIBE-WELCOME",
-                token="welcome-token-2026",
-                created_by_id=admin_user.id,
-                max_uses=100,
-                used_count=0,
-                is_active=True,
-                expires_at=datetime.datetime.utcnow() + datetime.timedelta(days=365)
-            )
-            db.add(default_inv)
-            await db.commit()
+        # Check default invitation code and demo project only if SEED_DEMO_DATA is enabled
+        if settings.SEED_DEMO_DATA:
+            inv_res = await db.execute(select(Invitation).where(Invitation.code == "VIBE-WELCOME"))
+            if not inv_res.scalars().first():
+                logger.info("Creando código de bienvenida inicial: VIBE-WELCOME")
+                default_inv = Invitation(
+                    code="VIBE-WELCOME",
+                    token="welcome-token-2026",
+                    created_by_id=admin_user.id,
+                    max_uses=100,
+                    used_count=0,
+                    is_active=True,
+                    expires_at=datetime.datetime.utcnow() + datetime.timedelta(days=365)
+                )
+                db.add(default_inv)
+                await db.commit()
 
-        # Check default project
-        proj_res = await db.execute(select(Project))
-        if not proj_res.scalars().first():
-            logger.info("Creando proyecto de demostración inicial...")
-            demo_proj = Project(
-                name="Portal Web Corporativo",
-                description="Aplicación web para gestión de clientes y servicios digitales.",
-                repo_url="https://github.com/vibe-demo/corporate-portal",
-                default_branch="main",
-                system_prompt_rules="Mantén una arquitectura modular, nombres claros de componentes y estilos coherentes con Tailwind CSS.",
-                is_active=True
-            )
-            db.add(demo_proj)
-            await db.commit()
+            # Check default demo project
+            proj_res = await db.execute(select(Project))
+            if not proj_res.scalars().first():
+                logger.info("Creando proyecto de demostración inicial...")
+                demo_proj = Project(
+                    name="Portal Web Corporativo",
+                    description="Aplicación web para gestión de clientes y servicios digitales.",
+                    repo_url="https://github.com/vibe-demo/corporate-portal",
+                    default_branch="main",
+                    system_prompt_rules="Mantén una arquitectura modular, nombres claros de componentes y estilos coherentes con Tailwind CSS.",
+                    is_active=True
+                )
+                db.add(demo_proj)
+                await db.commit()
+        else:
+            logger.info("Modo producción: Sembrado automático de invitaciones y proyectos demo deshabilitado por seguridad.")
 
     logger.info("Vibe Manager AI backend inicializado correctamente.")
     yield
@@ -129,12 +132,29 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url="/docs" if settings.DOCS_ENABLED else None,
+    redoc_url="/redoc" if settings.DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if settings.DOCS_ENABLED else None
 )
+
+# Robust and secure CORS origin resolution
+allowed_origins = [settings.FRONTEND_URL.rstrip("/")]
+if settings.CORS_ORIGINS:
+    for origin in settings.CORS_ORIGINS.split(","):
+        stripped = origin.strip().rstrip("/")
+        if stripped and stripped not in allowed_origins:
+            allowed_origins.append(stripped)
+
+# In dev, allow localhost ports if not in production
+if settings.ENVIRONMENT != "production":
+    for dev_origin in ["http://localhost:3010", "http://localhost:8000", "http://127.0.0.1:3010", "http://127.0.0.1:8000"]:
+        if dev_origin not in allowed_origins:
+            allowed_origins.append(dev_origin)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For dev convenience
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -152,13 +172,16 @@ app.include_router(processes_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 def read_root():
-    return {
+    info = {
         "name": settings.PROJECT_NAME,
         "version": settings.VERSION,
-        "status": "online",
-        "docs": "/docs"
+        "status": "online"
     }
+    if settings.DOCS_ENABLED:
+        info["docs"] = "/docs"
+    return info
 
 @app.get("/api/health")
 def health_check():
     return {"status": "healthy"}
+

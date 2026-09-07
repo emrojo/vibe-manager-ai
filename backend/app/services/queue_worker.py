@@ -7,6 +7,7 @@ from app.database import AsyncSessionLocal
 from app.models.prompt_task import PromptTask
 from app.models.project import Project
 from app.models.user import User
+from app.services.crypto import decrypt_token
 from app.services.docker_runner import execute_task_sandbox
 from app.services.task_streamer import task_stream_manager
 
@@ -63,11 +64,12 @@ async def process_prompt_task(task_id: int):
         user_name = task.user.name if task.user else "Usuario"
         prompt_text = task.edited_prompt if task.edited_prompt else task.original_prompt
         repo_url = task.repo_validator.repo_url if task.repo_validator else project.repo_url
-        github_token = (
+        raw_token = (
             (task.repo_validator.github_token if task.repo_validator and task.repo_validator.github_token else None)
             or project.github_token
             or settings.GITHUB_TOKEN
         )
+        github_token = decrypt_token(raw_token) if raw_token else ""
         default_branch = (
             (task.repo_validator.default_branch if task.repo_validator and task.repo_validator.default_branch else None)
             or project.default_branch

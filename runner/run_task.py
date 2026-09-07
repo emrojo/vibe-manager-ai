@@ -472,14 +472,28 @@ def main():
                 full_path = os.path.join(workspace_dir, rel_path)
                 
                 if action == "DELETE":
-                    if os.path.exists(full_path):
+                    if os.path.islink(full_path):
+                        os.unlink(full_path)
+                        log(f"Eliminado enlace simbólico: {rel_path}")
+                    elif os.path.exists(full_path):
                         os.remove(full_path)
                         log(f"Eliminado: {rel_path}")
                 else:
+                    # Prevent symlink redirection attacks
+                    if os.path.islink(full_path):
+                        log(f"ADVERTENCIA DE SEGURIDAD: Enlace simbólico desvinculado en {rel_path}")
+                        os.unlink(full_path)
+                    
                     os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                    real_parent = os.path.realpath(os.path.dirname(full_path))
+                    if os.path.commonpath([os.path.abspath(workspace_dir), real_parent]) != os.path.abspath(workspace_dir):
+                        log(f"ADVERTENCIA DE SEGURIDAD: Ruta descartada por symlink escape en directorio padre: {rel_path}")
+                        continue
+
                     with open(full_path, "w", encoding="utf-8") as f:
                         f.write(content)
                     log(f"{'Creado' if action == 'CREATE' else 'Modificado'}: {rel_path}")
+
 
             # Git add and commit
             run_cmd(["git", "add", "-A"], cwd=workspace_dir)

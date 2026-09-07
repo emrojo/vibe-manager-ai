@@ -156,13 +156,15 @@ async def execute_task_sandbox(
             "--tmpfs", "/home/runner:rw,size=64m,nosuid,uid=10001,gid=10001",
             "--cap-drop=ALL",
             "--security-opt=no-new-privileges",
+            "--pids-limit", "150",
+            "--cpus", "1.5",
             "--network", "bridge",
             "--memory", "2g",
             "-e", f"TASK_PAYLOAD_B64={payload_b64}",
             docker_image
         ]
         
-        await emit_log(f"Comando: docker run --rm --name {container_name} --read-only --cap-drop=ALL --security-opt=no-new-privileges --tmpfs /runner_workspace ... {docker_image}")
+        await emit_log(f"Comando: docker run --rm --name {container_name} --read-only --cap-drop=ALL --security-opt=no-new-privileges --pids-limit 150 --cpus 1.5 --tmpfs /runner_workspace ... {docker_image}")
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -191,18 +193,24 @@ async def execute_task_sandbox(
             finally:
                 await task_stream_manager.unregister_process(task_id)
         except Exception as e:
-            await emit_log(f"Fallo al ejecutar contenedor Docker: {str(e)}. Intentando modo local...")
+            await emit_log(f"Fallo al ejecutar contenedor Docker: {str(e)}.")
             use_docker = False
 
     if not use_docker:
-        await emit_log("Ejecutando en entorno local aislado...")
-        local_runner = os.path.join(os.path.dirname(__file__), "run_task.py")
-        if not os.path.exists(local_runner):
-            local_runner = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../runner/run_task.py"))
+        if settings.REQUIRE_DOCKER_SANDBOX:
+            err_msg = "ERROR DE SEGURIDAD: El contenedor sandbox Docker no está disponible y la ejecución directa en el host está bloqueada en modo producción."
+            await emit_log(err_msg)
+            error_candidate = err_msg
+        else:
+            await emit_log("Ejecutando en entorno local de desarrollo...")
+            local_runner = os.path.join(os.path.dirname(__file__), "run_task.py")
+            if not os.path.exists(local_runner):
+                local_runner = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../runner/run_task.py"))
 
-        env = os.environ.copy()
-        env["TASK_PAYLOAD_B64"] = payload_b64
-        env["WORKSPACE_DIR"] = os.path.join(temp_dir, "repo")
+            env = os.environ.copy()
+            env["TASK_PAYLOAD_B64"] = payload_b64
+            env["WORKSPACE_DIR"] = os.path.join(temp_dir, "repo")
+
         env["OUTPUT_FILE"] = result_file_path
         
         try:

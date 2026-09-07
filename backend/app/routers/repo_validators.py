@@ -1,4 +1,4 @@
-﻿from typing import List, Optional
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from app.models.user import User
 from app.models.project import Project
 from app.models.repo_validator import RepoValidator
 from app.schemas.repo_validator import RepoValidatorCreate, RepoValidatorRead, RepoTargetOption
+from app.services.crypto import encrypt_token
 
 router = APIRouter(prefix="/repo-validators", tags=["repo-validators"])
 
@@ -52,9 +53,11 @@ async def register_repo_validator(
     )
     repo_val = val_res.scalars().first()
 
+    encrypted_github_token = encrypt_token(payload.github_token)
+
     if repo_val:
         # Update existing registration
-        repo_val.github_token = payload.github_token
+        repo_val.github_token = encrypted_github_token
         repo_val.default_branch = default_branch
         repo_val.repo_name = repo_name
         repo_val.project_id = project.id
@@ -65,7 +68,7 @@ async def register_repo_validator(
             repo_url=repo_url,
             repo_name=repo_name,
             default_branch=default_branch,
-            github_token=payload.github_token,
+            github_token=encrypted_github_token,
             user_id=current_user.id,
             project_id=project.id,
             is_active=True

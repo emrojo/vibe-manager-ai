@@ -189,39 +189,44 @@ When launched for the first time, the database automatically provisions the defa
 Create a `.env` file in the project root:
 
 ```env
-# Security & Session
-SECRET_KEY=vibe-secret-super-key-2026-production
+# Application Environment & Hardening
+ENVIRONMENT=production                 # 'production' activa validaciones estrictas y deshabilita demos
+DOCS_ENABLED=false                    # Desactiva Swagger UI (/docs) y OpenAPI (/openapi.json) en público
+REQUIRE_DOCKER_SANDBOX=true           # Bloquea la ejecución local desprotegida si Docker no responde
+SEED_DEMO_DATA=false                  # Deshabilita creación de invitaciones públicas por defecto (VIBE-WELCOME)
+CORS_ORIGINS=                         # Orígenes autorizados adicionales (ej: https://vibe.midominio.com)
+
+# Security & Session (Genera uno con: openssl rand -hex 32)
+SECRET_KEY=tu_clave_secreta_criptografica_de_64_caracteres_minimo_32
 ACCESS_TOKEN_EXPIRE_MINUTES=10080
 
 # PostgreSQL Configuration (Persistent Docker Database)
 POSTGRES_DB=vibe_manager
 POSTGRES_USER=vibe_user
-POSTGRES_PASSWORD=vibe_password_2026_secure
+POSTGRES_PASSWORD=password_aleatorio_muy_seguro_de_base_de_datos
 
-# Database URL:
-# For Docker Compose (PostgreSQL 16):
-DATABASE_URL=postgresql+asyncpg://vibe_user:vibe_password_2026_secure@db:5432/vibe_manager
-# For Standalone Local Dev (SQLite):
-# DATABASE_URL=sqlite+aiosqlite:///./data/vibe_manager.db
+# Database URL (PostgreSQL 16 en contenedor db):
+DATABASE_URL=postgresql+asyncpg://vibe_user:password_aleatorio_muy_seguro_de_base_de_datos@db:5432/vibe_manager
 
-# Default Seeded Admin
+# Default Seeded Admin (Generado automáticamente por setup-prod.sh)
 DEFAULT_ADMIN_EMAIL=admin@vibemanager.ai
-DEFAULT_ADMIN_PASSWORD=Admin1234!
+DEFAULT_ADMIN_PASSWORD=password_generado_aleatoriamente
 
 # Google Gemini AI
 GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL=gemini-3.6-flash
 
-# GitHub Fallback Token (optional)
-GITHUB_TOKEN=your_github_pat_here
+# GitHub Fallback Token (opcional - los validadores proporcionan sus propios PATs cifrados)
+GITHUB_TOKEN=
 
 # Docker Sandbox Runner
 DOCKER_RUNNER_IMAGE=vibe-runner:latest
 DOCKER_TIMEOUT_SECONDS=300
 
-# Frontend URL
-FRONTEND_URL=http://localhost:3010
+# Public URL (Dominio HTTPS)
+FRONTEND_URL=https://vibe.midominio.com
 ```
+
 
 ---
 
@@ -238,26 +243,28 @@ flowchart LR
     subgraph HostServer ["🖥️ Servidor Host Linux (Ubuntu / Debian)"]
         direction TB
         FW["🔥 Firewall UFW (Solo puertos 22, 80, 443)"]
-        NGINX["🛡️ Host Nginx Reverse Proxy\n(Terminación SSL Let's Encrypt / HSTS / WebSockets)"]
+        NGINX["🛡️ Host Nginx Reverse Proxy\n(Terminación SSL / HSTS / Rate Limits / WebSockets)"]
         SYSTEMD["⚙️ systemd (vibe-manager.service)"]
 
-        subgraph DockerNetwork ["🐳 Red Interna Aislada (127.0.0.1)"]
-            GW["vibe-gateway\n(127.0.0.1:8080)"]
-            FE["vibe-frontend\n(127.0.0.1:3010)"]
-            BE["vibe-backend\n(127.0.0.1:8000)"]
-            DB[("vibe-db\nPostgreSQL 16\n(127.0.0.1:5432)")]
-            RUNNER["📦 vibe-runner:latest\n(Sandbox efímero por demanda)"]
+        subgraph DockerNetwork ["🐳 Red Interna Docker (vibe_stack_network)"]
+            GW["vibe-gateway\n(Exclusivamente 127.0.0.1:8080)"]
+            FE["vibe-frontend\n(Red interna / Sin puerto host)"]
+            BE["vibe-backend\n(Red interna / Sin puerto host)"]
+            DB[("vibe-db\nPostgreSQL 16\n(Red interna / Sin puerto host)")]
+            RUNNER["📦 vibe-runner:latest\n(Sandbox efímero: --cap-drop=ALL --pids-limit 150)"]
         end
     end
 
     CLIENT -->|HTTPS / 443| FW
     FW --> NGINX
-    NGINX -->|HTTP / WS| BE
-    NGINX -->|HTTP| FE
+    NGINX -->|HTTP / WS| GW
+    GW --> BE
+    GW --> FE
     SYSTEMD -.->|Gestiona ciclo de vida| DockerNetwork
     BE --> DB
-    BE -.->|Monta /var/run/docker.sock| RUNNER
+    BE -.->|Ejecuta sandbox por demanda| RUNNER
 ```
+
 
 ---
 

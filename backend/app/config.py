@@ -6,6 +6,13 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api"
     
+    # Environment & Production Hardening
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    DOCS_ENABLED: bool = os.getenv("DOCS_ENABLED", "true" if os.getenv("ENVIRONMENT", "development") != "production" else "false").lower() in ("true", "1", "yes")
+    REQUIRE_DOCKER_SANDBOX: bool = os.getenv("REQUIRE_DOCKER_SANDBOX", "true" if os.getenv("ENVIRONMENT", "development") == "production" else "false").lower() in ("true", "1", "yes")
+    SEED_DEMO_DATA: bool = os.getenv("SEED_DEMO_DATA", "false" if os.getenv("ENVIRONMENT", "development") == "production" else "true").lower() in ("true", "1", "yes")
+    CORS_ORIGINS: str = os.getenv("CORS_ORIGINS", "")
+
     # Security
     SECRET_KEY: str = os.getenv("SECRET_KEY", "super-secret-key-vibe-manager-ai-change-in-prod-2026")
     ALGORITHM: str = "HS256"
@@ -35,3 +42,17 @@ class Settings(BaseSettings):
     model_config = {"env_file": ".env", "extra": "allow"}
 
 settings = Settings()
+
+# Validate production security at startup
+if settings.ENVIRONMENT == "production":
+    insecure_defaults = [
+        "super-secret-key-vibe-manager-ai-change-in-prod-2026",
+        "vibe-secret-super-key-2026-production"
+    ]
+    if settings.SECRET_KEY in insecure_defaults or len(settings.SECRET_KEY) < 32:
+        raise RuntimeError(
+            "CRITICAL SECURITY ERROR: In production, SECRET_KEY must be a cryptographically strong "
+            "random key (minimum 32 characters) and cannot be the default development key. "
+            "Please generate one with `openssl rand -hex 32` and set it in your .env file."
+        )
+

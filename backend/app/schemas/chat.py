@@ -1,10 +1,10 @@
 import datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 class ChatMessageCreate(BaseModel):
     recipient_id: int
-    content: str
+    content: str = Field(..., min_length=1, max_length=4000)
 
 class ChatMessageRead(BaseModel):
     id: int

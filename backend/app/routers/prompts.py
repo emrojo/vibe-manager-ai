@@ -217,9 +217,13 @@ async def get_prompt_detail(
     if not task:
         raise HTTPException(status_code=404, detail="Prompt no encontrado")
         
-    # Check permission: admin, assigned validator, or author
-    if current_user.role != "admin" and task.assigned_validator_id != current_user.id and task.user_id != current_user.id:
+    # Check permission: admin, author, assigned validator or repo validator owner
+    is_owner = task.user_id == current_user.id
+    is_assigned = task.assigned_validator_id == current_user.id
+    is_repo_owner = bool(task.repo_validator and task.repo_validator.user_id == current_user.id)
+    if current_user.role != "admin" and not is_owner and not is_assigned and not is_repo_owner:
         raise HTTPException(status_code=403, detail="No tienes permiso para ver este prompt")
+
         
     return map_prompt_task(task)
 

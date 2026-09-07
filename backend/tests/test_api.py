@@ -633,4 +633,79 @@ async def test_alembic_migration_schema():
     assert "create repo_validators and task links" in head_revision.doc
 
 
+@pytest.mark.asyncio
+async def test_production_security_hardening():
+    """Verify security hardening: password length, chat message length, branch validation, token encryption, and RBAC."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 1. Weak password rejection (< 8 characters)
+        weak_payload = {
+            "email": "weakuser@test.com",
+            "name": "Weak User",
+            "password": "123"
+        }
+        res_weak = await ac.post("/api/auth/register", json=weak_payload)
+        assert res_weak.status_code == 422, "Should reject password shorter than 8 characters"
 
+        # 2. Valid registration of Admin
+        admin_res = await ac.post("/api/auth/register", json={
+            "email": "adminsec@test.com",
+            "name": "Admin Sec",
+            "password": "SecurePassword2026!"
+        })
+        assert admin_res.status_code == 200
+        admin_token = admin_res.json()["access_token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # 3. Create normal user
+        inv_res = await ac.post("/api/admin/invitations", json={"max_uses": 10}, headers=admin_headers)
+        inv_code = inv_res.json()["code"]
+
+        user_res = await ac.post("/api/auth/register", json={
+            "email": "normalsec@test.com",
+            "name": "Normal Sec",
+            "password": "SecureUserPassword2026!",
+            "invite_code": inv_code
+        })
+        assert user_res.status_code == 200
+        user_token = user_res.json()["access_token"]
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+
+        # 4. Chat message overflow test (> 4000 characters)
+        huge_content = "A" * 4500
+        chat_res = await ac.post("/api/chat/messages", json={
+            "recipient_id": 1,
+            "content": huge_content
+        }, headers=user_headers)
+        assert chat_res.status_code == 422, "Should reject oversized chat content"
+
+        # 5. Invalid branch validation test (directory traversal attempt)
+        bad_branch_res = await ac.post("/api/repo-validators", json={
+            "repo_url": "https://github.com/testsec/repo",
+            "github_token": "ghp_securetoken123456",
+            "default_branch": "../../etc/passwd"
+        }, headers=user_headers)
+        assert bad_branch_res.status_code == 422, "Should reject unsafe branch names"
+
+        # 6. Token encryption at rest test
+        valid_branch_res = await ac.post("/api/repo-validators", json={
+            "repo_url": "https://github.com/testsec/repo",
+            "github_token": "ghp_super_secret_pat_999",
+            "default_branch": "main"
+        }, headers=user_headers)
+        assert valid_branch_res.status_code == 200
+        rv_id = valid_branch_res.json()["id"]
+
+        # Inspect database record directly to verify encryption at rest
+        from sqlalchemy import select
+        from app.models.repo_validator import RepoValidator
+        from app.services.crypto import decrypt_token
+        async with TestingSessionLocal() as db:
+            db_res = await db.execute(select(RepoValidator).where(RepoValidator.id == rv_id))
+            rv_row = db_res.scalars().first()
+            assert rv_row.github_token.startswith("enc:"), "Token in DB must be encrypted at rest"
+            assert decrypt_token(rv_row.github_token) == "ghp_super_secret_pat_999"
+
+        # 7. RBAC: Normal user denied access to /processes/{id}/details
+        p_res = await ac.get("/api/processes/1/details", headers=user_headers)
+        assert p_res.status_code == 403, "Non-admin must be forbidden from process details"

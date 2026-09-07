@@ -1,4 +1,4 @@
-﻿import datetime
+import datetime
 import re
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -35,6 +35,15 @@ class RepoValidatorCreate(BaseModel):
         if len(s) < 10:
             raise ValueError("El token de GitHub debe tener al menos 10 caracteres.")
         return s
+
+    @field_validator("default_branch")
+    @classmethod
+    def validate_branch(cls, v: Optional[str]) -> str:
+        branch = (v or "main").strip()
+        if not re.match(r"^[a-zA-Z0-9_\-\./]+$", branch) or ".." in branch or branch.startswith("/"):
+            raise ValueError("Nombre de rama inválido. Solo se permiten caracteres alfanuméricos, guiones y barras.")
+        return branch
+
 
 class RepoValidatorRead(BaseModel):
     id: int

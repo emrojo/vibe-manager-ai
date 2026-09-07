@@ -51,6 +51,22 @@ class TaskStreamManager:
             if task_id not in self._task_logs:
                 self._task_logs[task_id] = []
             self._task_logs[task_id].append(cleaned)
+            # Memory leak mitigation: keep max 1000 lines per task in memory
+            if len(self._task_logs[task_id]) > 1000:
+                self._task_logs[task_id] = self._task_logs[task_id][-1000:]
+
+            # Periodic prune of finished tasks older than 2 hours if too many tasks in memory
+            if len(self._active_tasks) > 50:
+                cutoff = (datetime.datetime.utcnow() - datetime.timedelta(hours=2)).isoformat()
+                stale_ids = [
+                    tid for tid, t in self._active_tasks.items()
+                    if t.get("status") in ("COMPLETED", "FAILED", "STOPPED") and t.get("started_at", "") < cutoff
+                ]
+                for old_id in stale_ids:
+                    self._active_tasks.pop(old_id, None)
+                    self._task_logs.pop(old_id, None)
+                    self._subscribers.pop(old_id, None)
+                    self._stopped_tasks.discard(old_id)
 
             # Auto-detect stage from log patterns
             if task_id in self._active_tasks:

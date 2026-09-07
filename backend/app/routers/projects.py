@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectRead
+from app.services.crypto import encrypt_token
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -55,12 +56,13 @@ async def create_project(
     payload: ProjectCreate,
     db: AsyncSession = Depends(get_db)
 ):
+    token_val = encrypt_token(payload.github_token.strip()) if payload.github_token else None
     new_proj = Project(
         name=payload.name.strip(),
         description=payload.description.strip() if payload.description else None,
         repo_url=payload.repo_url.strip(),
         default_branch=payload.default_branch.strip() or "main",
-        github_token=payload.github_token.strip() if payload.github_token else None,
+        github_token=token_val,
         system_prompt_rules=payload.system_prompt_rules.strip() if payload.system_prompt_rules else None,
         is_active=payload.is_active
     )
@@ -82,14 +84,18 @@ async def update_project(
         
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
-        if field == "github_token" and value == "":
-            setattr(proj, field, None)
+        if field == "github_token":
+            if value == "":
+                setattr(proj, field, None)
+            elif value:
+                setattr(proj, field, encrypt_token(value.strip()))
         else:
             setattr(proj, field, value)
             
     await db.commit()
     await db.refresh(proj)
     return map_project_read(proj)
+
 
 @router.delete("/{project_id}", dependencies=[Depends(require_roles(["admin"]))])
 async def delete_project(

@@ -128,14 +128,22 @@ if [ ! -f "$ENV_FILE" ]; then
 
     RANDOM_SECRET="$(openssl rand -hex 32)"
     RANDOM_DB_PASS="$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 24)"
+    RANDOM_ADMIN_PASS="$(openssl rand -base64 18 | tr -dc 'a-zA-Z0-9' | head -c 18)"
 
     cat <<EOF > "$ENV_FILE"
 # ==============================================================================
-# Vibe Manager AI - Production Environment Variables
+# Vibe Manager AI - Production Environment Variables (Hardened)
 # Generated on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # ==============================================================================
 
-# Application Secrets
+# Application Environment & Security Controls
+ENVIRONMENT=production
+DOCS_ENABLED=false
+REQUIRE_DOCKER_SANDBOX=true
+SEED_DEMO_DATA=false
+CORS_ORIGINS=
+
+# Application Secrets (Randomly generated 64-char key)
 SECRET_KEY=${RANDOM_SECRET}
 ACCESS_TOKEN_EXPIRE_MINUTES=10080
 
@@ -145,9 +153,9 @@ POSTGRES_USER=vibe_user
 POSTGRES_PASSWORD=${RANDOM_DB_PASS}
 DATABASE_URL=postgresql+asyncpg://vibe_user:${RANDOM_DB_PASS}@db:5432/vibe_manager
 
-# Initial Admin Credentials
+# Initial Admin Credentials (Randomly generated for security)
 DEFAULT_ADMIN_EMAIL=admin@vibemanager.ai
-DEFAULT_ADMIN_PASSWORD=Admin1234!
+DEFAULT_ADMIN_PASSWORD=${RANDOM_ADMIN_PASS}
 
 # Google Gemini AI Settings
 GEMINI_API_KEY=
@@ -163,20 +171,19 @@ DOCKER_TIMEOUT_SECONDS=300
 # Host Ingress URL
 FRONTEND_URL=https://localhost
 
-# Production Port Bindings (Exclusively loopback 127.0.0.1 for host Nginx reverse proxy)
+# Production Port Bindings (Exclusively loopback 127.0.0.1:8080 for host Nginx)
 GATEWAY_BIND=127.0.0.1:8080:80
-BACKEND_BIND=127.0.0.1:8000:8000
-FRONTEND_BIND=127.0.0.1:3010:3010
-POSTGRES_BIND=127.0.0.1:5432:5432
 EOF
-    log_success "Archivo .env generado con contraseñas seguras."
+    chmod 600 "$ENV_FILE"
+    log_success "Archivo .env generado con contraseñas seguras y permisos 600."
 else
     log_info "Archivo .env existente detectado. Conservando configuración actual."
+    chmod 600 "$ENV_FILE" || true
     grep -q "^GATEWAY_BIND=" "$ENV_FILE" || echo "GATEWAY_BIND=127.0.0.1:8080:80" >> "$ENV_FILE"
-    grep -q "^BACKEND_BIND=" "$ENV_FILE" || echo "BACKEND_BIND=127.0.0.1:8000:8000" >> "$ENV_FILE"
-    grep -q "^FRONTEND_BIND=" "$ENV_FILE" || echo "FRONTEND_BIND=127.0.0.1:3010:3010" >> "$ENV_FILE"
-    grep -q "^POSTGRES_BIND=" "$ENV_FILE" || echo "POSTGRES_BIND=127.0.0.1:5432:5432" >> "$ENV_FILE"
+    grep -q "^ENVIRONMENT=" "$ENV_FILE" || echo "ENVIRONMENT=production" >> "$ENV_FILE"
+    grep -q "^REQUIRE_DOCKER_SANDBOX=" "$ENV_FILE" || echo "REQUIRE_DOCKER_SANDBOX=true" >> "$ENV_FILE"
 fi
+
 
 # Prompt for Domain Name
 echo ""
@@ -259,16 +266,13 @@ NGINX_ENABLED="/etc/nginx/sites-enabled/vibe-manager.conf"
 
 # Prepare Nginx configuration file tailored for HTTP initially (or HTTPS if certificates exist)
 sudo bash -c "cat << 'EOF' > '${NGINX_AVAILABLE}'
-# Rate limiting zone for authentication endpoints
+# Rate limiting zones
 limit_req_zone \$binary_remote_addr zone=vibe_auth_limit:10m rate=5r/s;
+limit_req_zone \$binary_remote_addr zone=vibe_prompt_limit:10m rate=10r/m;
 
-upstream vibe_backend_upstream {
-    server 127.0.0.1:8000;
-    keepalive 32;
-}
 
-upstream vibe_frontend_upstream {
-    server 127.0.0.1:3010;
+upstream vibe_gateway_upstream {
+    server 127.0.0.1:8080;
     keepalive 32;
 }
 
@@ -297,17 +301,37 @@ server {
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
 
+    # Deny access to hidden files (.git, .env)
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # Block public access to docs in production
+    location ~* ^/(docs|redoc|openapi\.json) {
+        return 404;
+    }
+
     # Rate-limited Auth Endpoints
     location ~* ^/api/auth/(login|register) {
         limit_req zone=vibe_auth_limit burst=10 nodelay;
-        proxy_pass http://vibe_backend_upstream;
+        proxy_pass http://vibe_gateway_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Connection \"\";
+    }
+
+    # Rate-limited Prompt Submission Endpoint
+    location = /api/prompts {
+        limit_req zone=vibe_prompt_limit burst=5 nodelay;
+        proxy_pass http://vibe_gateway_upstream;
         proxy_http_version 1.1;
         proxy_set_header Connection \"\";
     }
 
     # WebSockets (Real-time Chat & Live Streaming Terminal Consoles)
     location ~* ^/api/(chat/ws|processes/.+/console) {
-        proxy_pass http://vibe_backend_upstream;
+        proxy_pass http://vibe_gateway_upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection \"Upgrade\";
@@ -317,9 +341,9 @@ server {
         proxy_buffering off;
     }
 
-    # REST API & OpenAPI Docs
+    # REST API
     location /api/ {
-        proxy_pass http://vibe_backend_upstream;
+        proxy_pass http://vibe_gateway_upstream;
         proxy_http_version 1.1;
         proxy_set_header Connection \"\";
         proxy_connect_timeout 60s;
@@ -327,28 +351,19 @@ server {
         proxy_send_timeout 300s;
     }
 
-    location /docs {
-        proxy_pass http://vibe_backend_upstream;
-        proxy_http_version 1.1;
-    }
-
-    location /openapi.json {
-        proxy_pass http://vibe_backend_upstream;
-        proxy_http_version 1.1;
-    }
-
     # Next.js Static Asset Caching
     location /_next/static/ {
-        proxy_pass http://vibe_frontend_upstream;
+        proxy_pass http://vibe_gateway_upstream;
         proxy_http_version 1.1;
         proxy_set_header Connection \"\";
         expires 365d;
         access_log off;
+        add_header Cache-Control \"public, max-age=31536000, immutable\";
     }
 
-    # Frontend Web Application
+    # Frontend Web Application (Default)
     location / {
-        proxy_pass http://vibe_frontend_upstream;
+        proxy_pass http://vibe_gateway_upstream;
         proxy_http_version 1.1;
         proxy_set_header Connection \"\";
         proxy_connect_timeout 30s;
@@ -356,6 +371,7 @@ server {
     }
 }
 EOF"
+
 
 sudo sed -i "s/__DOMAIN_NAME__/${DOMAIN_NAME}/g" "${NGINX_AVAILABLE}"
 
@@ -388,13 +404,22 @@ echo -e "${GREEN}===============================================================
 echo -e "${GREEN}${BOLD}     ¡Instalación y Puesta en Marcha de Producción Completada!                ${NC}"
 echo -e "${GREEN}==============================================================================${NC}"
 echo ""
-echo -e "El stack de Vibe Manager AI está activo mediante ${BOLD}systemd${NC} y accesible a través de Nginx."
+# Read admin credentials from .env to display
+ACTUAL_ADMIN_EMAIL="$(grep -E '^DEFAULT_ADMIN_EMAIL=' "$ENV_FILE" | cut -d '=' -f2- || echo 'admin@vibemanager.ai')"
+ACTUAL_ADMIN_PASS="$(grep -E '^DEFAULT_ADMIN_PASSWORD=' "$ENV_FILE" | cut -d '=' -f2- || echo '********')"
+
+echo -e "El stack de Vibe Manager AI está activo mediante ${BOLD}systemd${NC} y securizado tras Nginx."
 echo ""
-echo -e "${BOLD}Acceso Web Inicial:${NC}  http://${DOMAIN_NAME}"
-echo -e "${BOLD}Credenciales Admin:${NC}  admin@vibemanager.ai / Admin1234!"
-echo -e "${BOLD}Código de Bienvenida:${NC} VIBE-WELCOME"
+echo -e "${BOLD}Acceso Web Inicial:${NC}    http://${DOMAIN_NAME}"
+echo -e "${BOLD}Usuario Administrador:${NC} ${ACTUAL_ADMIN_EMAIL}"
+echo -e "${BOLD}Contraseña Generada:${NC}   ${YELLOW}${BOLD}${ACTUAL_ADMIN_PASS}${NC}"
+echo ""
+echo -e "${RED}${BOLD}[IMPORTANTE] Guarda inmediatamente la contraseña del administrador en tu gestor de claves.${NC}"
+echo -e "Por seguridad, en modo producción las invitaciones abiertas están deshabilitadas;"
+echo -e "podrás emitir invitaciones personalizadas desde el panel de administración una vez dentro."
 echo ""
 echo -e "${CYAN}${BOLD}PASOS RECOMENDADOS A CONTINUACIÓN:${NC}"
+
 echo ""
 if [ "$DOMAIN_NAME" != "localhost" ]; then
     echo -e "1. ${BOLD}Activar HTTPS Gratuito con Let's Encrypt (Certbot):${NC}"

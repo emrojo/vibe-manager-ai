@@ -76,7 +76,7 @@ async def get_active_processes(
 @router.get("/{task_id}/details")
 async def get_process_details(
     task_id: int,
-    current_user: User = Depends(require_roles(["admin", "validator"])),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
@@ -185,7 +185,7 @@ async def stream_task_console(
             async with AsyncSessionLocal() as db:
                 res = await db.execute(select(User).where(User.id == user_id))
                 u = res.scalars().first()
-                if u and not u.is_banned and u.is_active and u.role in ("admin", "validator"):
+                if u and not u.is_banned and u.is_active and u.role == "admin":
                     is_authorized = True
         except Exception:
             is_authorized = False
@@ -194,10 +194,11 @@ async def stream_task_console(
         await websocket.accept()
         await websocket.send_json({
             "type": "error",
-            "message": "Acceso denegado. Solo administradores o validadores pueden acceder a la consola."
+            "message": "Acceso denegado. Solo los administradores pueden acceder a la consola de ejecución en vivo."
         })
         await websocket.close(code=4003)
         return
+
 
     await websocket.accept()
 
