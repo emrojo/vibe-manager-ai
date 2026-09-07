@@ -1,27 +1,29 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
-import Navbar from "@/components/Navbar";
+import { ThemeProvider } from "@/lib/theme-context";
+
+const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Vibe Manager AI - Plataforma de Prompts y PRs",
-  description: "Interfaz para creación y validación de prompts de código con ejecución en Docker y PRs en GitHub",
+  title: "Vibe Manager AI",
+  description: "AI-driven task execution and management system",
 };
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
-    <html lang="es" className="dark">
-      <body className="min-h-screen bg-slate-950 text-slate-100 antialiased flex flex-col">
-        <AuthProvider>
-          <Navbar />
-          <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+    <html lang="es" suppressHydrationWarning>
+      <body className={`${inter.className} bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 min-h-screen transition-colors duration-200`}>
+        <ThemeProvider>
+          <AuthProvider>
             {children}
-          </main>
-        </AuthProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );
