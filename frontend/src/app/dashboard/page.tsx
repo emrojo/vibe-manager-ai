@@ -485,69 +485,128 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Condensed 5-Hour Token Quota Widget */}
+      {/* Unified 5-Hour Token Quota & Real-time Request Estimation Panel */}
       {quota && (
-        <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-2.5 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-          {/* Left: Token numbers & Status */}
-          <div className="flex items-center gap-3 shrink-0">
-            <div className={`p-1.5 rounded-lg border shrink-0 ${quota.is_exceeded ? "bg-rose-500/15 border-rose-500/30 text-rose-400" : "bg-indigo-500/15 border-indigo-500/30 text-indigo-400"}`}>
-              <Coins className="w-4 h-4" />
+        <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-lg space-y-3">
+          {/* Row 1: 5-Hour Token Quota Status */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+            {/* Left: Token numbers & Status */}
+            <div className="flex items-center gap-3 shrink-0">
+              <div className={`p-2 rounded-xl border shrink-0 ${quota.is_exceeded ? "bg-rose-500/15 border-rose-500/30 text-rose-400" : "bg-indigo-500/15 border-indigo-500/30 text-indigo-400"}`}>
+                <Coins className="w-4 h-4" />
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-white">
+                  {t("dashboard.quota_title", { hours: quota.quota_window_hours })}:
+                </span>
+                <span className="font-mono font-bold text-white text-sm">
+                  {quota.tokens_remaining.toLocaleString()}
+                </span>
+                <span className="text-slate-400 font-mono text-[11px]">
+                  / {quota.token_quota_limit.toLocaleString()}
+                </span>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    quota.is_exceeded
+                      ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                      : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                  }`}
+                >
+                  {quota.percentage_used}% {t("dashboard.consumed")}
+                </span>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-semibold text-white">
-                {t("dashboard.quota_title", { hours: quota.quota_window_hours })}:
-              </span>
-              <span className="font-mono font-bold text-white text-sm">
-                {quota.tokens_remaining.toLocaleString()}
-              </span>
-              <span className="text-slate-400 font-mono text-[11px]">
-                / {quota.token_quota_limit.toLocaleString()}
-              </span>
-              <span
-                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                  quota.is_exceeded
-                    ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                    : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
-                }`}
+
+            {/* Center: Inline Progress Bar */}
+            <div className="flex-1 max-w-xs mx-0 md:mx-4">
+              <div className="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    quota.percentage_used >= 100
+                      ? "bg-rose-500"
+                      : quota.percentage_used >= 80
+                      ? "bg-amber-500"
+                      : "bg-gradient-to-r from-indigo-500 to-violet-500"
+                  }`}
+                  style={{ width: `${Math.min(100, quota.percentage_used)}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Right: Reset Countdown & History Button */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300">
+                <Clock className="w-3.5 h-3.5 text-indigo-400" />
+                <span>{t("dashboard.reset_in")}</span>
+                <span className="font-mono font-semibold text-indigo-300">{formatTimeRemaining(quota.seconds_until_reset)}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowQuotaLogsModal(true)}
+                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-medium flex items-center gap-1.5 transition-all"
+                title={t("dashboard.cost_history")}
               >
-                {quota.percentage_used}% {t("dashboard.consumed")}
+                <History className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden sm:inline">{t("dashboard.cost_history")}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Row 2: Real-time Request Cost Breakdown Strip */}
+          <div className="pt-2.5 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="p-1 rounded-lg bg-indigo-500/10 text-indigo-400">
+                <Cpu className="w-3.5 h-3.5" />
+              </div>
+              <span className="font-semibold text-slate-200 text-xs">
+                {t("dashboard.cost_breakdown_title")}
+              </span>
+              <span className="text-[10px] text-slate-400 hidden lg:inline">
+                ({t("dashboard.realtime_cache_calc")})
+              </span>
+            </div>
+
+            {/* Compact Breakdown Pills */}
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
+              <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-slate-300" title={t("dashboard.prompt_tokens")}>
+                Prompt: <strong className="text-white">~{promptTokens.toLocaleString()}</strong>
+              </span>
+              <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-800 text-slate-300" title={t("dashboard.fixed_ctx_tokens")}>
+                Ctx Fijo: <strong className="text-white">~{contextTokens.toLocaleString()}</strong>
+              </span>
+              {temporalTokens > 0 && (
+                <span className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/25 text-amber-300" title={t("dashboard.temporal_ctx_tokens")}>
+                  Temp: <strong>~{temporalTokens.toLocaleString()}</strong>
+                </span>
+              )}
+              {cachedDiscountTokens > 0 && (
+                <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 text-emerald-400" title={t("dashboard.cache_discount")}>
+                  Caché: <strong>-{cachedDiscountTokens.toLocaleString()}</strong>
+                </span>
+              )}
+              <span className="text-slate-600 font-sans">→</span>
+              <span className={`px-2.5 py-0.5 rounded-md border font-bold shadow-sm ${
+                willExceedQuota
+                  ? "bg-rose-500/20 border-rose-500/40 text-rose-200"
+                  : "bg-indigo-600/20 border-indigo-500/40 text-indigo-200"
+              }`}>
+                Total Est: ~{totalEstimatedTokens.toLocaleString()} {t("dashboard.tokens_unit")}
               </span>
             </div>
           </div>
 
-          {/* Center: Inline Progress Bar */}
-          <div className="flex-1 max-w-xs mx-0 md:mx-4">
-            <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden border border-slate-800">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${
-                  quota.percentage_used >= 100
-                    ? "bg-rose-500"
-                    : quota.percentage_used >= 80
-                    ? "bg-amber-500"
-                    : "bg-gradient-to-r from-indigo-500 to-violet-500"
-                }`}
-                style={{ width: `${Math.min(100, quota.percentage_used)}%` }}
-              />
+          {/* Quota Warning inside upper panel if exceeds */}
+          {willExceedQuota && (
+            <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>
+                {t("dashboard.quota_warning", {
+                  tokens: (liveEstimate ? liveEstimate.total_tokens_estimated : totalEstimatedTokens).toLocaleString(),
+                  remaining: quota?.tokens_remaining.toLocaleString() || 0
+                })}
+              </span>
             </div>
-          </div>
-
-          {/* Right: Reset Countdown & History Button */}
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-[11px] text-slate-300">
-              <Clock className="w-3.5 h-3.5 text-indigo-400" />
-              <span>{t("dashboard.reset_in")}</span>
-              <span className="font-mono font-semibold text-indigo-300">{formatTimeRemaining(quota.seconds_until_reset)}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowQuotaLogsModal(true)}
-              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-[11px] font-medium flex items-center gap-1.5 transition-all"
-              title={t("dashboard.cost_history")}
-            >
-              <History className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="hidden sm:inline">{t("dashboard.cost_history")}</span>
-            </button>
-          </div>
+          )}
         </div>
       )}
 
@@ -710,7 +769,27 @@ export default function DashboardPage() {
             })()}
           </div>
 
-          {/* Context Selector (Only Accepted Contexts) */}
+          {/* 2. Prompt Textarea */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                {t("dashboard.instructions_title")}
+              </label>
+              <span className="text-xs text-slate-400">
+                {t("dashboard.multiple_prompts_tip")}
+              </span>
+            </div>
+            <textarea
+              required
+              rows={5}
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              placeholder={t("dashboard.instructions_placeholder")}
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
+            />
+          </div>
+
+          {/* 3. Context Selector (Only Accepted Contexts) */}
           <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -830,7 +909,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* 2.1 Contexto Temporal de Tarea Activa (Opcional) */}
+            {/* 3.1 Contexto Temporal de Tarea Activa (Opcional) */}
             <div className="pt-3 border-t border-slate-800/80">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
@@ -880,75 +959,21 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Prompt Textarea */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                {t("dashboard.instructions_title")}
-              </label>
-              <span className="text-xs text-slate-400">
-                {t("dashboard.multiple_prompts_tip")}
-              </span>
-            </div>
-            <textarea
-              required
-              rows={5}
-              value={promptText}
-              onChange={(e) => setPromptText(e.target.value)}
-              placeholder={t("dashboard.instructions_placeholder")}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
-            />
-          </div>
-
-          {/* Condensed Live Token Estimation Strip */}
-          <div className="bg-slate-950/80 border border-slate-800/90 rounded-xl px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2 shrink-0">
-              <Cpu className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="font-semibold text-slate-300 text-[11px] uppercase tracking-wider">
-                {t("dashboard.cost_breakdown_title")}:
-              </span>
-            </div>
-
-            {/* Compact Breakdown Pills */}
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
-              <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-slate-300" title={t("dashboard.prompt_tokens")}>
-                Prompt: <strong className="text-white">~{promptTokens}</strong>
-              </span>
-              <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-slate-300" title={t("dashboard.fixed_ctx_tokens")}>
-                Fijo: <strong className="text-white">~{contextTokens}</strong>
-              </span>
-              {temporalTokens > 0 && (
-                <span className="px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/25 text-amber-300" title={t("dashboard.temporal_ctx_tokens")}>
-                  Temp: <strong>~{temporalTokens}</strong>
-                </span>
-              )}
-              {cachedDiscountTokens > 0 && (
-                <span className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/25 text-emerald-400" title={t("dashboard.cache_discount")}>
-                  Caché: <strong>-{cachedDiscountTokens}</strong>
-                </span>
-              )}
-              <span className="text-slate-600 font-sans">→</span>
-              <span className="px-2.5 py-0.5 rounded-md bg-indigo-600/20 border border-indigo-500/40 text-indigo-200 font-bold shadow-sm">
-                Total: ~{totalEstimatedTokens} {t("dashboard.tokens_unit")}
-              </span>
-            </div>
-
-            {willExceedQuota && (
-              <div className="w-full mt-1 p-2 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-300 text-[11px] flex items-center gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                <span>
-                  {t("dashboard.quota_warning", { tokens: (liveEstimate ? liveEstimate.total_tokens_estimated : totalEstimatedTokens).toLocaleString(), remaining: quota?.tokens_remaining.toLocaleString() || 0 })}
-                </span>
-              </div>
-            )}
-          </div>
-
           {/* Action */}
-          <div className="flex justify-end">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-800/80">
+            <div className="text-xs text-slate-400 font-mono flex items-center gap-1.5">
+              <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Coste estimado de este envío:</span>
+              <strong className="text-indigo-300 font-bold">~{totalEstimatedTokens.toLocaleString()} tokens</strong>
+              {cachedDiscountTokens > 0 && (
+                <span className="text-emerald-400 text-[11px]">(-{cachedDiscountTokens.toLocaleString()} ahorro caché)</span>
+              )}
+            </div>
+
             <button
               type="submit"
               disabled={submitting || targets.length === 0 || !promptText.trim() || (quota?.is_exceeded ?? false)}
-              className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium px-6 py-3 rounded-xl shadow-lg shadow-indigo-600/25 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium px-6 py-3 rounded-xl shadow-lg shadow-indigo-600/25 flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
             >
               {submitting ? (
                 <>

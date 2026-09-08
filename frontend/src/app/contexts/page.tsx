@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useI18n } from "@/lib/i18n-context";
 import { apiRequest } from "@/lib/api";
-import Navbar from "@/components/Navbar";
 import WorkflowGuide from "@/components/WorkflowGuide";
 import {
   Boxes,
@@ -244,11 +243,8 @@ export default function ContextsPage() {
   const estimatedTokens = Math.max(1, Math.round(formText.trim().length / 3.8));
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      <Navbar />
-
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Top Header */}
+    <div className="space-y-8">
+      {/* Top Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-6 border-b border-slate-800">
           <div>
             <div className="flex items-center gap-3">
@@ -703,7 +699,6 @@ export default function ContextsPage() {
           );
         })()}
         </div>
-      </main>
 
       {/* Modal Crear / Iterar Contexto */}
       {showCreateModal && (
