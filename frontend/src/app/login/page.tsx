@@ -4,12 +4,14 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { useI18n } from "@/lib/i18n-context";
 import { apiRequest } from "@/lib/api";
 import { Sparkles, Lock, Mail, ArrowRight, AlertCircle } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
+  const { t } = useI18n();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -46,7 +48,7 @@ export default function LoginPage() {
       login(data.access_token, data.user);
       router.push("/dashboard");
     } catch (err: any) {
-      setError(err.message || "Credenciales incorrectas");
+      setError(err.message || t("auth.invalid_credentials"));
     } finally {
       setLoading(false);
     }
@@ -60,9 +62,9 @@ export default function LoginPage() {
           <div className="inline-flex p-3 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 mb-3">
             <Sparkles className="w-7 h-7" />
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Iniciar Sesión</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-white">{t("auth.login_title")}</h1>
           <p className="text-sm text-slate-400 mt-1">
-            Accede al workspace de Vibe Manager AI
+            {t("auth.login_subtitle")}
           </p>
         </div>
 
@@ -76,7 +78,7 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Correo Electrónico
+              {t("auth.email")}
             </label>
             <div className="relative">
               <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
@@ -85,7 +87,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="usuario@ejemplo.com"
+                placeholder={t("auth.email_placeholder")}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
               />
             </div>
@@ -93,7 +95,7 @@ export default function LoginPage() {
 
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-              Contraseña
+              {t("auth.password")}
             </label>
             <div className="relative">
               <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
@@ -102,7 +104,7 @@ export default function LoginPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder={t("auth.password_placeholder")}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
               />
             </div>
@@ -117,7 +119,7 @@ export default function LoginPage() {
               <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
             ) : (
               <>
-                <span>Entrar</span>
+                <span>{t("auth.login_button")}</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             )}
@@ -127,7 +129,7 @@ export default function LoginPage() {
         {/* Demo Credentials — only visible in development with seed data enabled */}
         {showDemoCredentials && (
           <div className="mt-6 p-3 rounded-lg bg-slate-950/60 border border-slate-800/80 text-xs text-slate-400">
-            <span className="font-semibold text-indigo-400">Credenciales Admin por defecto:</span>
+            <span className="font-semibold text-indigo-400">Demo Admin:</span>
             <br />
             Email: <code className="text-slate-200">admin@vibemanager.ai</code>
             <br />
@@ -136,9 +138,9 @@ export default function LoginPage() {
         )}
 
         <div className="mt-6 text-center text-sm text-slate-400">
-          ¿Tienes una invitación?{" "}
+          {t("auth.no_account")}{" "}
           <Link href="/register" className="text-indigo-400 hover:text-indigo-300 font-medium">
-            Regístrate aquí
+            {t("auth.register_here")}
           </Link>
         </div>
       </div>

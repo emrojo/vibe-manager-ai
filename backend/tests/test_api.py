@@ -621,16 +621,19 @@ async def test_alembic_migration_schema():
     from alembic.migration import MigrationContext
 
     # Check alembic.ini exists
-    assert os.path.exists("alembic.ini")
-    cfg = Config("alembic.ini")
+    ini_path = "backend/alembic.ini" if os.path.exists("backend/alembic.ini") else "alembic.ini"
+    assert os.path.exists(ini_path)
+    cfg = Config(ini_path)
+    if "backend" in ini_path:
+        cfg.set_main_option("script_location", "backend/alembic")
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
     assert len(heads) == 1
-    assert heads[0] == "0003_quotas_ctx"
+    assert heads[0] == "0005_temporal_ctx"
 
     # Check migration revision head details
     head_revision = script.get_revision(heads[0])
-    assert "add quotas and contexts" in head_revision.doc
+    assert "add temporal contexts and token breakdown" in head_revision.doc
 
 
 @pytest.mark.asyncio
@@ -914,6 +917,32 @@ async def test_user_token_quota_and_contexts_workflow():
         }, headers=admin_headers)
         proj_id = proj_res.json()["id"]
 
+        # 7. Context validation requirement: using context in PENDING status fails
+        prompt_fail = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Generar servicios de auditoría",
+            "context_id": ctx1_id
+        }, headers=u1_headers)
+        assert prompt_fail.status_code == 400
+        assert "Solo se pueden utilizar contextos completamente aceptados" in prompt_fail.json()["detail"]
+
+        # Validator approves raw context -> status = APPROVED
+        app_raw = await ac.post(f"/api/validation/contexts/{ctx1_id}/approve", headers=admin_headers)
+        assert app_raw.status_code == 200
+
+        # Simulate context plan generated -> PLAN_PENDING
+        async with TestingSessionLocal() as session:
+            ctx_db = (await session.execute(select(UserContext).where(UserContext.id == ctx1_id))).scalars().first()
+            ctx_db.status = "PLAN_PENDING"
+            ctx_db.plan_markdown = "## Plan de Contexto Técnico para Auditoría"
+            await session.commit()
+
+        # Validator approves context plan -> status = ACCEPTED
+        app_plan = await ac.post(f"/api/validation/contexts/{ctx1_id}/approve-plan", headers=admin_headers)
+        assert app_plan.status_code == 200
+        assert app_plan.json()["status"] == "ACCEPTED"
+
+        # Now prompt with ACCEPTED context succeeds
         prompt_res = await ac.post("/api/prompts", json={
             "project_id": proj_id,
             "prompt": "Generar servicios de auditoría",
@@ -1005,4 +1034,317 @@ async def test_user_token_quota_and_contexts_workflow():
         # User 1 no longer has the context
         u1_ctx_res = await ac.get("/api/contexts", headers=u1_headers)
         assert len(u1_ctx_res.json()) == 0
+
+
+@pytest.mark.asyncio
+async def test_context_full_lifecycle_and_iteration():
+    """
+    Test complete lifecycle of a user context:
+    1. Creation by user -> PENDING, version 1
+    2. Validator edits raw text and approves -> APPROVED
+    3. Gemini Context Plan generated -> PLAN_PENDING
+    4. Validator modifies context plan with feedback
+    5. Validator approves context plan -> ACCEPTED
+    6. Context is available in /api/contexts/accepted and usable in prompt
+    7. User iterates on the context (modifies text) -> returns to PENDING, version 2
+    8. Context is immediately blocked from new prompts until re-approved
+    """
+    from sqlalchemy import select
+    from app.models.user_context import UserContext
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        admin_reg = await ac.post("/api/auth/register", json={
+            "email": "admin_ctx_flow@vibemanager.ai",
+            "name": "Admin Ctx",
+            "password": "Password123!"
+        })
+        if admin_reg.status_code == 200:
+            admin_token = admin_reg.json()["access_token"]
+        else:
+            admin_login = await ac.post("/api/auth/login", json={
+                "email": "admin_ctx_flow@vibemanager.ai",
+                "password": "Password123!"
+            })
+            admin_token = admin_login.json()["access_token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        inv_res = await ac.post("/api/admin/invitations", json={"max_uses": 10, "expires_in_days": 10}, headers=admin_headers)
+        invite_code = inv_res.json()["code"]
+
+        dev_res = await ac.post("/api/auth/register", json={
+            "email": "dev_ctx_flow@vibemanager.ai",
+            "name": "Dev User",
+            "password": "Password123!",
+            "invite_code": invite_code
+        })
+        dev_token = dev_res.json()["access_token"]
+        dev_headers = {"Authorization": f"Bearer {dev_token}"}
+
+        val_res_reg = await ac.post("/api/auth/register", json={
+            "email": "val_ctx_flow@vibemanager.ai",
+            "name": "Validator User",
+            "password": "Password123!",
+            "invite_code": invite_code
+        })
+        val_token = val_res_reg.json()["access_token"]
+        val_user_id = val_res_reg.json()["user"]["id"]
+        val_headers = {"Authorization": f"Bearer {val_token}"}
+
+        # Project & RepoValidator
+        proj_res = await ac.post("/api/projects", json={
+            "name": "Context Lifecycle Project",
+            "repo_url": "https://github.com/vibe/ctx-lifecycle",
+            "default_branch": "main"
+        }, headers=admin_headers)
+        proj_id = proj_res.json()["id"]
+
+        rv_res = await ac.post("/api/repo-validators", json={
+            "repo_url": "https://github.com/vibe/ctx-lifecycle",
+            "repo_name": "ctx-lifecycle",
+            "default_branch": "main",
+            "github_token": "ghp_mocktokenforctx12345678901234567890"
+        }, headers=val_headers)
+        rv_id = rv_res.json()["id"]
+
+        # 1. Dev creates context assigned to this validator
+        create_res = await ac.post("/api/contexts", json={
+            "identifier": "backend-architecture-guidelines",
+            "name": "Guías de Arquitectura Backend",
+            "description": "Reglas de arquitectura limpia",
+            "context_text": "Todos los endpoints deben retornar Pydantic models estructurados y manejar excepciones.",
+            "repo_validator_id": rv_id
+        }, headers=dev_headers)
+        assert create_res.status_code in (200, 201)
+        ctx_data = create_res.json()
+        ctx_id = ctx_data["id"]
+        assert ctx_data["status"] == "PENDING"
+        assert ctx_data["version"] == 1
+        assert ctx_data["assigned_validator_id"] == val_user_id
+
+        # Dev's accepted list is empty
+        acc_list = await ac.get("/api/contexts/accepted", headers=dev_headers)
+        assert len(acc_list.json()) == 0
+
+        # Attempt to use PENDING context in prompt fails with 400
+        bad_prompt = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Crear microservicio de facturación",
+            "context_id": ctx_id
+        }, headers=dev_headers)
+        assert bad_prompt.status_code == 400
+        assert "Solo se pueden utilizar contextos completamente aceptados" in bad_prompt.json()["detail"]
+
+        # 2. Validator checks pending contexts
+        val_ctx_list = await ac.get("/api/validation/contexts", headers=val_headers)
+        assert val_ctx_list.status_code == 200
+        assert any(c["id"] == ctx_id for c in val_ctx_list.json())
+
+        # Validator edits raw text
+        edit_res = await ac.put(f"/api/validation/contexts/{ctx_id}/edit", json={
+            "edited_text": "Todos los endpoints deben retornar Pydantic v2 schemas estrictos y loguear con structlog."
+        }, headers=val_headers)
+        assert edit_res.status_code == 200
+        assert edit_res.json()["edited_text"] == "Todos los endpoints deben retornar Pydantic v2 schemas estrictos y loguear con structlog."
+
+        # Validator approves raw text
+        app_raw_res = await ac.post(f"/api/validation/contexts/{ctx_id}/approve", headers=val_headers)
+        assert app_raw_res.status_code == 200
+        assert app_raw_res.json()["status"] in ["APPROVED", "PLAN_PENDING"]
+
+        # Simulate Gemini Context Plan generation (PLAN_PENDING)
+        async with TestingSessionLocal() as session:
+            c_row = (await session.execute(select(UserContext).where(UserContext.id == ctx_id))).scalars().first()
+            c_row.status = "PLAN_PENDING"
+            c_row.plan_markdown = "# Plan de Contexto para Arquitectura\n## 1. Reglas\n- Pydantic estricto."
+            await session.commit()
+
+        # 3. Validator modifies plan
+        mod_plan_res = await ac.post(f"/api/validation/contexts/{ctx_id}/modify-plan", json={
+            "plan_markdown": "# Plan de Contexto Técnico Mejorado\n## 1. Reglas\n- Pydantic v2 estricto.\n- Structlog obligatorio."
+        }, headers=val_headers)
+        assert mod_plan_res.status_code == 200
+        assert "Structlog obligatorio" in mod_plan_res.json()["plan_markdown"]
+
+        # 4. Validator approves the context plan -> ACCEPTED
+        app_plan_res = await ac.post(f"/api/validation/contexts/{ctx_id}/approve-plan", headers=val_headers)
+        assert app_plan_res.status_code == 200
+        assert app_plan_res.json()["status"] == "ACCEPTED"
+        assert app_plan_res.json()["accepted_text"] is not None
+
+        # 5. Dev sees context in /accepted list
+        acc_list2 = await ac.get("/api/contexts/accepted", headers=dev_headers)
+        assert len(acc_list2.json()) == 1
+        assert acc_list2.json()[0]["id"] == ctx_id
+
+        # Dev can submit prompt with the ACCEPTED context
+        good_prompt = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Crear microservicio de facturación",
+            "context_id": ctx_id
+        }, headers=dev_headers)
+        assert good_prompt.status_code == 200
+        assert good_prompt.json()["context_id"] == ctx_id
+
+        # 6. Dev iterates on the context (modifies text)
+        iter_res = await ac.put(f"/api/contexts/{ctx_id}", json={
+            "context_text": "Nueva versión: Todos los endpoints deben usar FastAPI Dependencies y tests con Pytest."
+        }, headers=dev_headers)
+        assert iter_res.status_code == 200
+        iter_data = iter_res.json()
+        assert iter_data["version"] == 2
+        assert iter_data["status"] == "PENDING"
+        assert iter_data["plan_markdown"] is None
+
+        # Immediately blocked from new prompts again!
+        blocked_prompt = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Crear segundo microservicio",
+            "context_id": ctx_id
+        }, headers=dev_headers)
+        assert blocked_prompt.status_code == 400
+        assert "Solo se pueden utilizar contextos completamente aceptados" in blocked_prompt.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_temporal_context_and_cost_breakdown():
+    """Verify temporal context generation, token breakdown, chaining, and merge on plan approval."""
+    from sqlalchemy import select
+    from app.models.user_context import UserContext
+    from app.models.prompt_task import PromptTask
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        admin_res = await ac.post("/api/auth/register", json={
+            "email": "admin_temp@vibemanager.ai",
+            "name": "Admin Temporal",
+            "password": "Password123!"
+        })
+        admin_token = admin_res.json()["access_token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        inv_res = await ac.post("/api/admin/invitations", json={"max_uses": 5, "expires_in_days": 10}, headers=admin_headers)
+        invite_code = inv_res.json()["code"]
+
+        # 1. Register test project
+        proj_res = await ac.post("/api/projects", json={
+            "name": "Temporal Context Demo",
+            "repo_url": "https://github.com/acme/temporal-demo",
+            "default_branch": "main",
+            "github_token": "ghp_temporal_secret"
+        }, headers=admin_headers)
+        assert proj_res.status_code == 200
+        proj_id = proj_res.json()["id"]
+
+        # 2. Register developer user
+        dev_email = "dev_temporal@acme.com"
+        reg_res = await ac.post("/api/auth/register", json={
+            "email": dev_email,
+            "name": "Dev Temporal",
+            "password": "TemporalPassword123!",
+            "invite_code": invite_code
+        })
+        assert reg_res.status_code == 200
+        dev_token = reg_res.json()["access_token"]
+        dev_headers = {"Authorization": f"Bearer {dev_token}"}
+
+        # 3. Create context and accept it
+        ctx_create = await ac.post("/api/contexts", json={
+            "identifier": "backend-standards",
+            "name": "Backend Standards",
+            "context_text": "Todos los endpoints deben retornar Pydantic models estructurados y tipados con FastAPI."
+        }, headers=dev_headers)
+        assert ctx_create.status_code == 200
+        ctx_id = ctx_create.json()["id"]
+
+        # Admin approves raw context
+        await ac.post(f"/api/validation/contexts/{ctx_id}/approve", headers=admin_headers)
+
+        # Simulate Gemini Context Plan generation (PLAN_PENDING)
+        async with TestingSessionLocal() as session:
+            c_row = (await session.execute(select(UserContext).where(UserContext.id == ctx_id))).scalars().first()
+            c_row.status = "PLAN_PENDING"
+            c_row.plan_markdown = "# Plan Técnico para Backend Standards\n- Pydantic estricto."
+            await session.commit()
+
+        # Admin approves context plan -> status = ACCEPTED
+        app_res = await ac.post(f"/api/validation/contexts/{ctx_id}/approve-plan", headers=admin_headers)
+        assert app_res.status_code == 200
+        assert app_res.json()["status"] == "ACCEPTED"
+
+        # 4. Estimate tokens with prompt + context
+        est_res = await ac.post("/api/contexts/estimate", json={
+            "prompt": "Generar endpoint de pagos con Stripe",
+            "context_id": ctx_id
+        }, headers=dev_headers)
+        assert est_res.status_code == 200
+        est_data = est_res.json()
+        assert est_data["prompt_tokens_estimated"] > 0
+        assert est_data["context_tokens_estimated"] > 0
+        assert est_data["total_tokens_estimated"] == est_data["prompt_tokens_estimated"] + est_data["context_tokens_estimated"]
+
+        # 5. Submit task 1 with fixed context
+        task1_res = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Implementar módulo de checkout con Stripe",
+            "context_id": ctx_id
+        }, headers=dev_headers)
+        assert task1_res.status_code == 200
+        task1_data = task1_res.json()
+        task1_id = task1_data["id"]
+        assert task1_data["temporal_context_status"] == "ACTIVE"
+        assert task1_data["tokens_fixed_context"] > 0
+
+        # Simulate task 1 validator plan generation
+        async with TestingSessionLocal() as session:
+            t1 = (await session.execute(select(PromptTask).where(PromptTask.id == task1_id))).scalars().first()
+            t1.status = "PLAN_PENDING"
+            t1.plan_content = "### Plan Stripe\n1. Añadir stripe-python\n2. Crear webhook handler con verificación de firma HMAC."
+            t1.temporal_context = "### Plan Stripe\n1. Añadir stripe-python\n2. Crear webhook handler con verificación de firma HMAC."
+            await session.commit()
+
+        # 6. Verify active temporal tasks endpoint
+        temp_list = await ac.get("/api/contexts/temporal/active", headers=dev_headers)
+        assert temp_list.status_code == 200
+        active_ids = [t["id"] for t in temp_list.json()]
+        assert task1_id in active_ids
+
+        # 7. Submit task 2 chaining task 1's temporal context
+        task2_res = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Añadir tests para los webhooks de Stripe",
+            "context_id": ctx_id,
+            "temporal_task_id": task1_id
+        }, headers=dev_headers)
+        assert task2_res.status_code == 200
+        task2_data = task2_res.json()
+        task2_id = task2_data["id"]
+        assert task2_data["tokens_temporal_context"] > 0
+
+        # Simulate plan for task 2 and reject it
+        async with TestingSessionLocal() as session:
+            t2 = (await session.execute(select(PromptTask).where(PromptTask.id == task2_id))).scalars().first()
+            t2.status = "PLAN_PENDING"
+            await session.commit()
+
+        t2_rej = await ac.post(f"/api/validation/tasks/{task2_id}/reject-plan", json={
+            "rejection_reason": "No se contemplaron los tests con pytest-mock."
+        }, headers=admin_headers)
+        assert t2_rej.status_code == 200
+        assert t2_rej.json()["temporal_context_status"] == "DISCARDED"
+
+        # 8. Approve plan on task 1 -> triggers evolution & merge into fixed context!
+        t1_app = await ac.post(f"/api/validation/tasks/{task1_id}/approve-plan", headers=admin_headers)
+        assert t1_app.status_code == 200
+        assert t1_app.json()["temporal_context_status"] == "MERGED"
+
+        # Check that fixed context evolved and version incremented
+        ctx_check = await ac.get(f"/api/contexts/{ctx_id}", headers=dev_headers)
+        assert ctx_check.status_code == 200
+        ctx_data = ctx_check.json()
+        assert ctx_data["version"] >= 2
+        assert "Evolución Incorporada" in ctx_data["context_text"]
+        assert "Stripe" in ctx_data["context_text"]
+
+
 

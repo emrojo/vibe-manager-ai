@@ -7,8 +7,10 @@ from app.database import AsyncSessionLocal
 from app.models.prompt_task import PromptTask
 from app.models.project import Project
 from app.models.user import User
+from app.models.user_context import UserContext
 from app.models.user_token_log import UserTokenLog
-from app.services.context_cache_service import check_and_refresh_quota
+from app.services.ai_gemini import generate_context_plan
+from app.services.context_cache_service import check_and_refresh_quota, try_create_gemini_context_cache
 from app.services.crypto import decrypt_token
 from app.services.docker_runner import execute_task_sandbox
 from app.services.task_streamer import task_stream_manager
@@ -49,8 +51,14 @@ async def process_prompt_task(task_id: int):
         mode = "EXECUTE" if initial_status == "PLAN_APPROVED" else "PLAN"
 
         if task.context:
-            context_text = task.context.context_text
+            context_text = task.context.accepted_text or task.context.context_text
             gemini_cache_name = task.context.gemini_cache_name
+
+        if task.temporal_context:
+            if context_text:
+                context_text = f"{context_text}\n\n{task.temporal_context}"
+            else:
+                context_text = task.temporal_context
 
         task.status = "RUNNING"
         if mode == "PLAN":
@@ -156,6 +164,8 @@ async def process_prompt_task(task_id: int):
                     task_id=task.id,
                     context_id=task.context_id,
                     tokens_prompt=prompt_tokens,
+                    tokens_fixed_context=task.tokens_fixed_context or 0,
+                    tokens_temporal_context=task.tokens_temporal_context or 0,
                     tokens_completion=completion_tokens,
                     tokens_total=total_tokens,
                     tokens_cached=cached_tokens
@@ -172,6 +182,9 @@ async def process_prompt_task(task_id: int):
                 task.execution_stage = "Plan generado - Pendiente de validación"
                 task.plan_content = runner_result.get("plan_markdown")
                 task.error_message = None
+                if task.plan_content:
+                    plan_snippet = f"\n\n### Plan Técnico Generado:\n{task.plan_content}"
+                    task.temporal_context = (task.temporal_context or "") + plan_snippet
             else:
                 task.status = "COMPLETED"
                 task.execution_stage = "COMPLETED"
@@ -195,4 +208,55 @@ async def process_prompt_task(task_id: int):
 def enqueue_prompt_task(task_id: int):
     """Schedules async background execution without blocking request."""
     asyncio.create_task(process_prompt_task(task_id))
+
+async def process_context_plan_generation(context_id: int, feedback: str = None):
+    """
+    Background worker that invokes Gemini to generate or refine a structured Context Plan
+    once the raw context has been approved or modified by the validator.
+    """
+    logger.info(f"[Worker] Generando Plan de Contexto con Gemini para contexto #{context_id}...")
+    try:
+        async with AsyncSessionLocal() as db:
+            res = await db.execute(select(UserContext).where(UserContext.id == context_id))
+            context = res.scalars().first()
+            if not context:
+                logger.error(f"[Worker] Contexto #{context_id} no encontrado.")
+                return
+
+            text_to_process = context.edited_text or context.context_text
+            current_plan = context.plan_markdown
+
+            # Generate plan using Gemini
+            plan_text = await generate_context_plan(
+                context_text=text_to_process,
+                feedback=feedback,
+                current_plan=current_plan,
+                api_key=settings.GEMINI_API_KEY,
+                model=settings.GEMINI_MODEL
+            )
+
+            # Also attempt Gemini context cache
+            cache_name, expire_dt = await try_create_gemini_context_cache(
+                context_text=text_to_process,
+                identifier=context.identifier,
+                api_key=settings.GEMINI_API_KEY,
+                model=settings.GEMINI_MODEL
+            )
+
+            context.plan_markdown = plan_text
+            context.plan_feedback = feedback
+            context.status = "PLAN_PENDING"
+            if cache_name:
+                context.gemini_cache_name = cache_name
+                context.gemini_cache_expire_time = expire_dt
+
+            await db.commit()
+            logger.info(f"[Worker] Plan de Contexto generado exitosamente para contexto #{context_id}. Estado: PLAN_PENDING")
+    except Exception as e:
+        logger.exception(f"[Worker] Error generando Plan de Contexto para #{context_id}: {e}")
+
+def enqueue_context_plan(context_id: int, feedback: str = None):
+    """Schedules async background generation of context plan."""
+    asyncio.create_task(process_context_plan_generation(context_id, feedback))
+
 

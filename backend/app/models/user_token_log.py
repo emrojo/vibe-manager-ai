@@ -12,6 +12,8 @@ class UserTokenLog(Base):
     context_id = Column(Integer, ForeignKey("user_contexts.id", ondelete="SET NULL"), nullable=True, index=True)
 
     tokens_prompt = Column(Integer, default=0, nullable=False)
+    tokens_fixed_context = Column(Integer, default=0, nullable=False)
+    tokens_temporal_context = Column(Integer, default=0, nullable=False)
     tokens_completion = Column(Integer, default=0, nullable=False)
     tokens_total = Column(Integer, default=0, nullable=False)
     tokens_cached = Column(Integer, default=0, nullable=False)

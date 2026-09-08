@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { useTheme } from "@/lib/theme-context";
+import { useI18n } from "@/lib/i18n-context";
 import { 
   Sparkles, 
   CheckSquare, 
@@ -12,11 +14,18 @@ import {
   Layers, 
   GitPullRequest,
   Activity,
-  User as UserIcon 
+  Boxes,
+  User as UserIcon,
+  Sun,
+  Moon,
+  Palette,
+  Globe
 } from "lucide-react";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
+  const { theme, setTheme } = useTheme();
+  const { t, locale, setLocale, locales } = useI18n();
   const pathname = usePathname();
 
   if (!user) return null;
@@ -25,22 +34,23 @@ export default function Navbar() {
   const isAdmin = user.role === "admin";
 
   const navLinks = [
-    { href: "/dashboard", label: "Mis Prompts", icon: Layers },
-    ...(isAdmin ? [{ href: "/processes", label: "Procesos", icon: Activity }] : []),
-    { href: "/pull-requests", label: "Mis Pull Requests", icon: GitPullRequest },
-    ...(isValidatorOrAdmin ? [{ href: "/validator", label: "Validación", icon: CheckSquare }] : []),
-    ...(isAdmin ? [{ href: "/admin", label: "Administración", icon: ShieldAlert }] : []),
-    { href: "/chat", label: "Chat", icon: MessageSquare },
+    { href: "/dashboard", label: t("navbar.my_prompts"), icon: Layers },
+    { href: "/contexts", label: t("navbar.contexts"), icon: Boxes },
+    ...(isAdmin ? [{ href: "/processes", label: t("navbar.processes"), icon: Activity }] : []),
+    { href: "/pull-requests", label: t("navbar.my_pull_requests"), icon: GitPullRequest },
+    ...(isValidatorOrAdmin ? [{ href: "/validator", label: t("navbar.validation"), icon: CheckSquare }] : []),
+    ...(isAdmin ? [{ href: "/admin", label: t("navbar.admin"), icon: ShieldAlert }] : []),
+    { href: "/chat", label: t("navbar.chat"), icon: MessageSquare },
   ];
 
-  let badgeLabel = "Usuario";
+  let badgeLabel = t("navbar.role_user");
   let badgeClass = "bg-blue-500/10 text-blue-400 border border-blue-500/20";
   if (user.role === "admin") {
-    badgeLabel = "Admin";
+    badgeLabel = t("navbar.role_admin");
     badgeClass = "bg-purple-500/10 text-purple-400 border border-purple-500/20";
   } else if ((user.validated_repos_count ?? 0) > 0) {
     const count = user.validated_repos_count || 1;
-    badgeLabel = `Validador (${count} ${count === 1 ? "repo" : "repos"})`;
+    badgeLabel = `${t("navbar.role_validator")} (${count} ${count === 1 ? "repo" : "repos"})`;
     badgeClass = "bg-amber-500/10 text-amber-400 border border-amber-500/20";
   }
 
@@ -59,7 +69,7 @@ export default function Navbar() {
                 Vibe Manager AI
               </span>
               <span className="text-[10px] text-slate-400 font-mono tracking-wider uppercase -mt-1">
-                Sandboxed Code Engine
+                {t("navbar.brand_subtitle")}
               </span>
             </div>
           </Link>
@@ -88,7 +98,64 @@ export default function Navbar() {
         </div>
 
         {/* User Info & Actions */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
+          {/* Theme Selector */}
+          <div className="flex items-center bg-slate-950/70 p-1 rounded-xl border border-slate-800" title={t("navbar.theme_dark")}>
+            <button
+              type="button"
+              onClick={() => setTheme("dark")}
+              title={t("navbar.theme_dark")}
+              className={`p-1.5 rounded-lg text-xs transition-all ${
+                theme === "dark"
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Moon className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setTheme("light")}
+              title={t("navbar.theme_light")}
+              className={`p-1.5 rounded-lg text-xs transition-all ${
+                theme === "light"
+                  ? "bg-amber-500 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Sun className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setTheme("midnight")}
+              title={t("navbar.theme_midnight")}
+              className={`p-1.5 rounded-lg text-xs transition-all ${
+                theme === "midnight"
+                  ? "bg-violet-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Palette className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Language Selector */}
+          <div className="relative">
+            <select
+              value={locale}
+              onChange={(e) => setLocale(e.target.value as any)}
+              aria-label={t("navbar.select_language")}
+              title={t("navbar.select_language")}
+              className="bg-slate-950/80 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 hover:text-white focus:outline-none focus:border-indigo-500 font-sans cursor-pointer transition-all shadow-sm"
+            >
+              {locales.map((l) => (
+                <option key={l.code} value={l.code} className="bg-slate-900 text-slate-200">
+                  {l.flag} {l.code.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="hidden sm:flex flex-col items-end">
             <span className="text-sm font-medium text-slate-200">{user.name}</span>
             <div className="flex items-center gap-1.5 mt-0.5">
@@ -102,7 +169,7 @@ export default function Navbar() {
 
           <button
             onClick={logout}
-            title="Cerrar sesión"
+            title={t("navbar.logout")}
             className="p-2 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-slate-800 hover:border-rose-500/20 transition-all"
           >
             <LogOut className="w-4 h-4" />

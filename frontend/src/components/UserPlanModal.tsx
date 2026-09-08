@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { PromptTask } from "@/lib/api";
 import { useState } from "react";
+import { useI18n } from "@/lib/i18n-context";
 
 interface UserPlanModalProps {
   task: PromptTask | null;
@@ -123,6 +124,7 @@ function PlanMarkdownView({ content }: { content: string }) {
 }
 
 export default function UserPlanModal({ task, onClose }: UserPlanModalProps) {
+  const { t } = useI18n();
   const [showPrompt, setShowPrompt] = useState(false);
 
   if (!task) return null;
@@ -138,7 +140,7 @@ export default function UserPlanModal({ task, onClose }: UserPlanModalProps) {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-white">Plan Técnico de Implementación</h3>
+                <h3 className="text-base font-bold text-white">{t("modals.plan_title", "Plan Técnico de Implementación")}</h3>
                 <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-800 text-indigo-300 font-semibold border border-indigo-500/30">
                   #{task.id}
                 </span>
@@ -164,8 +166,8 @@ export default function UserPlanModal({ task, onClose }: UserPlanModalProps) {
             <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-300 flex items-start gap-2.5">
               <Clock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <div>
-                <strong className="block font-semibold text-amber-200">Plan en espera de validación técnica</strong>
-                Gemini ha formulado este plan en el sandbox Docker. El equipo validador revisará la propuesta antes de dar luz verde a los cambios de código.
+                <strong className="block font-semibold text-amber-200">{t("modals.plan_pending_title", "Plan en espera de validación técnica")}</strong>
+                {t("modals.plan_pending_desc", "Gemini ha formulado este plan en el sandbox Docker. El equipo validador revisará la propuesta antes de dar luz verde a los cambios de código.")}
               </div>
             </div>
           )}
@@ -174,8 +176,8 @@ export default function UserPlanModal({ task, onClose }: UserPlanModalProps) {
             <div className="p-3.5 bg-teal-500/10 border border-teal-500/20 rounded-xl text-xs text-teal-300 flex items-start gap-2.5">
               <CheckCircle className="w-4 h-4 text-teal-400 shrink-0 mt-0.5" />
               <div>
-                <strong className="block font-semibold text-teal-200">Plan técnico aprobado</strong>
-                El plan ha sido validado{task.plan_validator_name ? ` por ${task.plan_validator_name}` : ""} y se encuentra encolado para su aplicación en el contenedor Docker.
+                <strong className="block font-semibold text-teal-200">{t("modals.plan_approved_title", "Plan técnico aprobado")}</strong>
+                {t("modals.plan_approved_desc", "El plan ha sido validado y se encuentra encolado para su aplicación en el contenedor Docker.")}
               </div>
             </div>
           )}
@@ -184,8 +186,8 @@ export default function UserPlanModal({ task, onClose }: UserPlanModalProps) {
             <div className="p-3.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-xs text-indigo-300 flex items-start gap-2.5">
               <span className="w-3.5 h-3.5 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin shrink-0 mt-0.5" />
               <div>
-                <strong className="block font-semibold text-indigo-200">Ejecución en curso</strong>
-                El sandbox Docker está aplicando las modificaciones en el código siguiendo este plan técnico.
+                <strong className="block font-semibold text-indigo-200">{t("modals.plan_running_title", "Ejecución en curso")}</strong>
+                {t("modals.plan_running_desc", "El sandbox Docker está aplicando las modificaciones en el código siguiendo este plan técnico.")}
               </div>
             </div>
           )}
@@ -195,7 +197,7 @@ export default function UserPlanModal({ task, onClose }: UserPlanModalProps) {
               <div className="flex items-center gap-2">
                 <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span>
-                  <strong>Plan ejecutado exitosamente.</strong> Los cambios han sido comiteados y se ha abierto un Pull Request.
+                  <strong>{t("modals.plan_completed_title", "Plan ejecutado exitosamente.")}</strong> {t("modals.plan_completed_desc", "Los cambios han sido comiteados y se ha abierto un Pull Request.")}
                 </span>
               </div>
               {task.pr_url && (
@@ -206,7 +208,7 @@ export default function UserPlanModal({ task, onClose }: UserPlanModalProps) {
                   className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium flex items-center gap-1 shrink-0 transition-all"
                 >
                   <GitPullRequest className="w-3.5 h-3.5" />
-                  <span>Ver PR en GitHub</span>
+                  <span>{t("modals.view_pr_github", "Ver PR en GitHub")}</span>
                   <ExternalLink className="w-3 h-3" />
                 </a>
               )}
@@ -217,7 +219,7 @@ export default function UserPlanModal({ task, onClose }: UserPlanModalProps) {
             <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-300 space-y-1">
               <strong className="block font-semibold text-rose-400 flex items-center gap-1.5">
                 <AlertCircle className="w-4 h-4" />
-                Motivo del rechazo del plan:
+                {t("modals.plan_rejection_reason_title", "Motivo del rechazo del plan:")}
               </strong>
               <p className="font-mono">{task.plan_rejection_reason}</p>
             </div>
@@ -231,7 +233,7 @@ export default function UserPlanModal({ task, onClose }: UserPlanModalProps) {
             >
               <span className="font-semibold flex items-center gap-1.5">
                 <FileCode2 className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Prompt original que generó este plan</span>
+                <span>{t("modals.original_prompt_label", "Prompt original que generó este plan")}</span>
               </span>
               {showPrompt ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
@@ -245,7 +247,7 @@ export default function UserPlanModal({ task, onClose }: UserPlanModalProps) {
           {/* Plan Content */}
           <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-2">
             <div className="text-[11px] uppercase tracking-wider font-bold text-slate-400 pb-2 border-b border-slate-800/80">
-              Estrategia y Pasos Técnicos Propuestos
+              {t("modals.proposed_strategy_label", "Estrategia y Pasos Técnicos Propuestos")}
             </div>
             <PlanMarkdownView content={task.plan_content || ""} />
           </div>
@@ -255,14 +257,14 @@ export default function UserPlanModal({ task, onClose }: UserPlanModalProps) {
         <div className="px-6 py-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between">
           <span className="text-xs text-slate-500">
             {task.plan_validated_at 
-              ? `Validado el ${new Date(task.plan_validated_at).toLocaleString()}`
-              : `Creado el ${new Date(task.created_at).toLocaleString()}`}
+              ? `${t("common.validated_at", "Validado el")} ${new Date(task.plan_validated_at).toLocaleString()}`
+              : `${t("common.created_at", "Creado el")} ${new Date(task.created_at).toLocaleString()}`}
           </span>
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors"
           >
-            Cerrar
+            {t("common.close", "Cerrar")}
           </button>
         </div>
       </div>

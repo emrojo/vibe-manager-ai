@@ -45,6 +45,12 @@ class PromptTask(Base):
     # Personal Context & Token Consumption
     context_id = Column(Integer, ForeignKey("user_contexts.id", ondelete="SET NULL"), nullable=True)
     tokens_used = Column(Integer, default=0, nullable=False)
+    tokens_fixed_context = Column(Integer, default=0, nullable=False)
+    tokens_temporal_context = Column(Integer, default=0, nullable=False)
+
+    # Temporal Context (generated during prompt -> plan validation cycle)
+    temporal_context = Column(Text, nullable=True)
+    temporal_context_status = Column(String(50), default="ACTIVE", nullable=True)  # ACTIVE, MERGED, DISCARDED
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)

@@ -17,6 +17,7 @@ import {
   Square
 } from "lucide-react";
 import { apiRequest, getToken } from "@/lib/api";
+import { useI18n } from "@/lib/i18n-context";
 
 interface LiveConsoleModalProps {
   task: {
@@ -34,6 +35,7 @@ interface LiveConsoleModalProps {
 }
 
 export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProps) {
+  const { t } = useI18n();
   const [logs, setLogs] = useState<string[]>([]);
   const [status, setStatus] = useState<string>(task?.status || "PENDING");
   const [stage, setStage] = useState<string>(task?.execution_stage || "Inicializando...");
@@ -49,15 +51,15 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
 
   const handleStopProcess = async () => {
     if (!task) return;
-    if (!confirm("¿Estás seguro de que deseas detener y abortar la ejecución de esta tarea en el sandbox?")) return;
+    if (!confirm(t("modals.confirm_stop_process", "¿Estás seguro de que deseas detener y abortar la ejecución de esta tarea en el sandbox?"))) return;
     setStopping(true);
     try {
       await apiRequest(`/processes/${task.id}/stop`, { method: "POST" });
       setStatus("STOPPED");
-      setStage("Detenido por el usuario");
-      setErrorMessage("Proceso cancelado/detenido manualmente por el usuario.");
+      setStage(t("modals.stopped_by_user", "Detenido por el usuario"));
+      setErrorMessage(t("modals.stopped_by_user_desc", "Proceso cancelado/detenido manualmente por el usuario."));
     } catch (err: any) {
-      alert(err.message || "Error al detener el proceso");
+      alert(err.message || t("modals.error_stop_process", "Error al detener el proceso"));
     } finally {
       setStopping(false);
     }
@@ -179,7 +181,7 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full flex flex-col max-h-[92vh] shadow-2xl overflow-hidden">
         
-        {/* Terminal Header */}
+        {/* Top Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 bg-slate-950 border-b border-slate-800">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
@@ -188,7 +190,7 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-white text-sm">
-                  Consola de Ejecución — Tarea #{task.id}
+                  {t("modals.console_title", "Consola en Vivo Docker Sandbox")} — #{task.id}
                 </span>
                 <span className="text-xs text-slate-400">
                   ({task.project_name || "Proyecto"})
@@ -202,19 +204,19 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                     </span>
-                    En Vivo {connected ? "(WebSocket conectado)" : "(Conectando...)"}
+                    {t("modals.live", "En Vivo")} {connected ? `(${t("modals.ws_connected", "WebSocket conectado")})` : `(${t("modals.connecting", "Conectando...")})`}
                   </span>
                 ) : isCompleted ? (
                   <span className="text-[11px] text-emerald-400 font-medium">
-                    ✓ Ejecución Exitosa
+                    {t("modals.execution_success", "✓ Ejecución Exitosa")}
                   </span>
                 ) : isStopped ? (
                   <span className="text-[11px] text-amber-400 font-medium">
-                    ⏹ Proceso Detenido
+                    {t("modals.process_stopped", "⏹ Proceso Detenido")}
                   </span>
                 ) : isFailed ? (
                   <span className="text-[11px] text-rose-400 font-medium">
-                    ✕ Falló la Ejecución
+                    {t("modals.execution_failed", "✕ Falló la Ejecución")}
                   </span>
                 ) : (
                   <span className="text-[11px] text-slate-400">
@@ -238,17 +240,17 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
               <button
                 onClick={handleStopProcess}
                 disabled={stopping}
-                title="Detener y matar proceso en ejecución"
+                title={t("modals.stop_process_title", "Detener y matar proceso en ejecución")}
                 className="px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50"
               >
                 <Square className={`w-3.5 h-3.5 fill-current ${stopping ? "animate-pulse" : ""}`} />
-                <span>{stopping ? "Deteniendo..." : "Detener Proceso"}</span>
+                <span>{stopping ? t("processes.stopping", "Deteniendo...") : t("processes.stop_container", "Detener Proceso")}</span>
               </button>
             )}
 
             <button
               onClick={() => setAutoScroll(!autoScroll)}
-              title={autoScroll ? "Autodesplazamiento activo" : "Activar autodesplazamiento"}
+              title={autoScroll ? t("modals.auto_scroll_active", "Autodesplazamiento activo") : t("modals.auto_scroll_inactive", "Activar autodesplazamiento")}
               className={`p-2 rounded-lg text-xs font-medium border transition-colors flex items-center gap-1 ${
                 autoScroll 
                   ? "bg-indigo-600/20 border-indigo-500/30 text-indigo-300" 
@@ -261,20 +263,20 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
 
             <button
               onClick={handleCopyLogs}
-              title="Copiar registros"
+              title={t("modals.copy_logs", "Copiar registros")}
               className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 text-xs flex items-center gap-1 transition-colors"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-              <span className="hidden sm:inline">{copied ? "Copiado" : "Copiar"}</span>
+              <span className="hidden sm:inline">{copied ? t("common.copied", "Copiado") : t("common.copy", "Copiar")}</span>
             </button>
 
             <button
               onClick={handleDownloadLogs}
-              title="Descargar archivo de logs"
+              title={t("modals.download_logs", "Descargar archivo de logs")}
               className="p-2 rounded-lg bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 text-xs flex items-center gap-1 transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Descargar</span>
+              <span className="hidden sm:inline">{t("common.download", "Descargar")}</span>
             </button>
 
             <button
@@ -292,10 +294,10 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
             <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
             <div className="text-xs space-y-1">
               <strong className="text-amber-300 text-sm font-semibold block">
-                Proceso Detenido Manualmente
+                {t("modals.process_stopped_manual", "Proceso Detenido Manualmente")}
               </strong>
               <p className="font-mono whitespace-pre-wrap leading-relaxed">
-                {errorMessage || "El proceso fue cancelado o abortado por el usuario."}
+                {errorMessage || t("modals.process_cancelled_desc", "El proceso fue cancelado o abortado por el usuario.")}
               </p>
             </div>
           </div>
@@ -307,10 +309,10 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
             <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
             <div className="text-xs space-y-1">
               <strong className="text-rose-300 text-sm font-semibold block">
-                Causa del Error de Ejecución:
+                {t("modals.error_cause_title", "Causa del Error de Ejecución:")}
               </strong>
               <p className="font-mono whitespace-pre-wrap leading-relaxed">
-                {errorMessage || "El sandbox finalizó de forma inesperada sin emitir código de éxito."}
+                {errorMessage || t("modals.error_sandbox_crash", "El sandbox finalizó de forma inesperada sin emitir código de éxito.")}
               </p>
             </div>
           </div>
@@ -322,7 +324,7 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
             <div className="flex items-center gap-2 text-xs">
               <GitPullRequest className="w-5 h-5 text-emerald-400 shrink-0" />
               <span>
-                <strong>Pull Request Creado en GitHub:</strong> {prUrl}
+                <strong>{t("modals.pr_created_github", "Pull Request Creado en GitHub:")}</strong> {prUrl}
               </span>
             </div>
             <a
@@ -331,7 +333,7 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
               rel="noopener noreferrer"
               className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-colors shadow-lg shadow-emerald-600/20"
             >
-              <span>Ver PR</span>
+              <span>{t("pullRequests.view_pr", "Ver PR")}</span>
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
           </div>
@@ -344,10 +346,10 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
               {isRunning ? (
                 <>
                   <RefreshCw className="w-6 h-6 animate-spin text-indigo-400" />
-                  <p>Iniciando contenedor sandbox y conectando terminal...</p>
+                  <p>{t("modals.starting_sandbox", "Iniciando contenedor sandbox y conectando terminal...")}</p>
                 </>
               ) : (
-                <p>Sin registros disponibles para esta tarea.</p>
+                <p>{t("modals.no_logs_available", "Sin registros disponibles para esta tarea.")}</p>
               )}
             </div>
           ) : (
@@ -388,7 +390,7 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
         {/* Terminal Footer */}
         <div className="px-4 py-2.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-500">
           <div className="flex items-center gap-2">
-            <span>{logs.length} líneas</span>
+            <span>{logs.length} {t("modals.lines_count", "líneas")}</span>
             <span>•</span>
             <span className="font-mono">UTF-8</span>
           </div>

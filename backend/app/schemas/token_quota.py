@@ -9,6 +9,8 @@ class UserTokenLogRead(BaseModel):
     context_id: Optional[int] = None
     context_name: Optional[str] = None
     tokens_prompt: int
+    tokens_fixed_context: int = 0
+    tokens_temporal_context: int = 0
     tokens_completion: int
     tokens_total: int
     tokens_cached: int

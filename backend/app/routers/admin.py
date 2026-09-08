@@ -21,6 +21,7 @@ from app.schemas.invitation import InvitationCreate, InvitationRead
 from app.schemas.user_context import UserContextRead
 from app.schemas.token_quota import AdminUserQuotaRead, AdminUserQuotaUpdate
 from app.services.context_cache_service import check_and_refresh_quota
+from app.routers.contexts import map_user_context, context_query_options
 
 router = APIRouter(
     prefix="/admin",
@@ -377,31 +378,12 @@ async def reset_user_quota_window(
 async def list_admin_all_contexts(db: AsyncSession = Depends(get_db)):
     """List all personal contexts across all users for admin review."""
     res = await db.execute(
-        select(UserContext, User.name, User.email)
-        .join(User, UserContext.user_id == User.id)
+        select(UserContext)
+        .options(*context_query_options())
         .order_by(UserContext.created_at.desc())
     )
-    rows = res.all()
-
-    return [
-        UserContextRead(
-            id=c.id,
-            user_id=c.user_id,
-            user_name=u_name,
-            user_email=u_email,
-            identifier=c.identifier,
-            name=c.name,
-            description=c.description,
-            context_text=c.context_text,
-            character_count=c.character_count,
-            estimated_tokens=c.estimated_tokens,
-            gemini_cache_name=c.gemini_cache_name,
-            gemini_cache_expire_time=c.gemini_cache_expire_time,
-            created_at=c.created_at,
-            updated_at=c.updated_at
-        )
-        for c, u_name, u_email in rows
-    ]
+    contexts = res.scalars().all()
+    return [map_user_context(c) for c in contexts]
 
 @router.delete("/contexts/{context_id}")
 async def admin_delete_context(

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { useI18n } from "@/lib/i18n-context";
 import { 
   apiRequest, 
   User, 
@@ -50,6 +51,7 @@ import {
 export default function AdminPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const { t } = useI18n();
 
   const [activeTab, setActiveTab] = useState<"users" | "invites" | "projects" | "gemini" | "quotas">("users");
   const [stats, setStats] = useState<any>(null);
@@ -409,10 +411,10 @@ export default function AdminPage() {
       <div>
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white flex items-center gap-3">
           <ShieldAlert className="w-7 h-7 text-purple-400" />
-          Consola de Administración
+          {t("admin.title", "Panel de Administración del Sistema")}
         </h1>
         <p className="text-slate-400 text-sm mt-1">
-          Gestiona los usuarios, otorga roles de validador, genera códigos de invitación y administra los repositorios vinculados.
+          {t("admin.subtitle", "Gestión global de cuotas de tokens, límites por usuario y códigos de invitación")}
         </p>
       </div>
 
@@ -438,53 +440,53 @@ export default function AdminPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-md">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-              Usuarios Registrados
+              {t("admin.registered_users", "Usuarios Registrados")}
             </span>
             <div className="text-2xl font-bold text-white mt-1 flex items-center justify-between">
               <span>{stats.users.total}</span>
               <Users className="w-5 h-5 text-indigo-400" />
             </div>
             <span className="text-[11px] text-slate-500 mt-1 block">
-              {stats.users.validators} validadores • {stats.users.banned} baneados
+              {stats.users.validators} {t("navbar.validator", "validadores")} • {stats.users.banned} {t("admin.banned_users", "baneados")}
             </span>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-md">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-              Prompts Pendientes
+              {t("admin.pending_prompts", "Prompts Pendientes")}
             </span>
             <div className="text-2xl font-bold text-amber-400 mt-1 flex items-center justify-between">
               <span>{stats.prompts.pending}</span>
               <Clock className="w-5 h-5 text-amber-400" />
             </div>
             <span className="text-[11px] text-slate-500 mt-1 block">
-              Esperando revisión de validador
+              {t("admin.waiting_validator_review", "Esperando revisión de validador")}
             </span>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-md">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-              PRs Generados en GitHub
+              {t("admin.generated_prs_github", "PRs Generados en GitHub")}
             </span>
             <div className="text-2xl font-bold text-emerald-400 mt-1 flex items-center justify-between">
               <span>{stats.prompts.completed_prs}</span>
               <Sparkles className="w-5 h-5 text-emerald-400" />
             </div>
             <span className="text-[11px] text-slate-500 mt-1 block">
-              Ejecutados con éxito en Docker
+              {t("admin.executed_success_docker", "Ejecutados con éxito en Docker")}
             </span>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl shadow-md">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
-              Proyectos Web
+              {t("admin.web_projects", "Proyectos Web")}
             </span>
             <div className="text-2xl font-bold text-indigo-400 mt-1 flex items-center justify-between">
               <span>{stats.projects_total}</span>
               <FolderGit2 className="w-5 h-5 text-indigo-400" />
             </div>
             <span className="text-[11px] text-slate-500 mt-1 block">
-              Repositorios configurados
+              {t("admin.configured_repos", "Repositorios configurados")}
             </span>
           </div>
         </div>
@@ -501,7 +503,7 @@ export default function AdminPage() {
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>Gestión de Usuarios</span>
+          <span>{t("admin.tab_users", "Gestión de Usuarios")}</span>
         </button>
 
         <button
@@ -513,7 +515,7 @@ export default function AdminPage() {
           }`}
         >
           <KeyRound className="w-4 h-4" />
-          <span>Códigos y Enlaces de Invitación</span>
+          <span>{t("admin.tab_invitations", "Códigos y Enlaces de Invitación")}</span>
         </button>
 
         <button
@@ -525,7 +527,7 @@ export default function AdminPage() {
           }`}
         >
           <FolderGit2 className="w-4 h-4" />
-          <span>Repositorios GitHub</span>
+          <span>{t("admin.tab_repos", "Repositorios GitHub")}</span>
         </button>
 
         <button
@@ -549,7 +551,7 @@ export default function AdminPage() {
           }`}
         >
           <Coins className="w-4 h-4" />
-          <span>Cuotas y Contextos</span>
+          <span>{t("admin.tab_quotas", "Cuotas y Contextos")}</span>
         </button>
       </div>
 
@@ -558,9 +560,9 @@ export default function AdminPage() {
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-bold text-white">Directorio de Usuarios</h2>
+              <h2 className="text-base font-bold text-white">{t("admin.users_directory_title", "Directorio de Usuarios")}</h2>
               <p className="text-xs text-slate-400">
-                Otorga el rol de validador, banea cuentas o inicia un chat directo
+                {t("admin.users_directory_desc", "Otorga el rol de validador, banea cuentas o inicia un chat directo")}
               </p>
             </div>
             <button
@@ -576,11 +578,11 @@ export default function AdminPage() {
             <table className="w-full text-left text-sm">
               <thead className="text-xs uppercase bg-slate-950/60 text-slate-400 border-b border-slate-800">
                 <tr>
-                  <th className="py-3 px-4">Usuario</th>
-                  <th className="py-3 px-4">Email</th>
-                  <th className="py-3 px-4">Rol</th>
-                  <th className="py-3 px-4">Estado</th>
-                  <th className="py-3 px-4 text-right">Acciones</th>
+                  <th className="py-3 px-4">{t("admin.col_user", "Usuario")}</th>
+                  <th className="py-3 px-4">{t("admin.col_email", "Email")}</th>
+                  <th className="py-3 px-4">{t("admin.col_role", "Rol")}</th>
+                  <th className="py-3 px-4">{t("admin.col_status", "Estado")}</th>
+                  <th className="py-3 px-4 text-right">{t("admin.col_actions", "Acciones")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -593,7 +595,7 @@ export default function AdminPage() {
                         {u.name}
                         {isCurrentAdmin && (
                           <span className="ml-2 text-[10px] text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20">
-                            (Tú)
+                            {t("admin.you_badge", "(Tú)")}
                           </span>
                         )}
                       </td>
@@ -616,11 +618,11 @@ export default function AdminPage() {
                       <td className="py-3.5 px-4">
                         {u.is_banned ? (
                           <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                            Baneado
+                            {t("admin.status_banned", "Baneado")}
                           </span>
                         ) : (
                           <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            Activo
+                            {t("admin.status_active", "Activo")}
                           </span>
                         )}
                       </td>
@@ -635,10 +637,10 @@ export default function AdminPage() {
                                   ? "bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20"
                                   : "bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700"
                               }`}
-                              title={u.role === "validator" ? "Quitar rol de validador" : "Hacer validador"}
+                              title={u.role === "validator" ? t("admin.tip_remove_val", "Quitar rol de validador") : t("admin.tip_make_val", "Hacer validador")}
                             >
                               <ShieldCheck className="w-3.5 h-3.5 inline mr-1" />
-                              {u.role === "validator" ? "Quitar Validador" : "Hacer Validador"}
+                              {u.role === "validator" ? t("admin.btn_remove_validator", "Quitar Validador") : t("admin.btn_make_validator", "Hacer Validador")}
                             </button>
 
                             {/* Ban / Readmit */}
@@ -653,12 +655,12 @@ export default function AdminPage() {
                               {u.is_banned ? (
                                 <>
                                   <UserCheck className="w-3.5 h-3.5 inline mr-1" />
-                                  Readmitir
+                                  {t("admin.btn_unban", "Readmitir")}
                                 </>
                               ) : (
                                 <>
                                   <UserX className="w-3.5 h-3.5 inline mr-1" />
-                                  Banear
+                                  {t("admin.btn_ban", "Banear")}
                                 </>
                               )}
                             </button>
@@ -669,7 +671,7 @@ export default function AdminPage() {
                               className="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 inline-flex items-center gap-1"
                             >
                               <MessageSquare className="w-3.5 h-3.5" />
-                              Chat
+                              {t("admin.btn_chat", "Chat")}
                             </Link>
                           </>
                         )}
@@ -688,15 +690,15 @@ export default function AdminPage() {
         <div className="space-y-6">
           {/* Create Invite Form */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-            <h2 className="text-base font-bold text-white mb-1">Generar Nueva Invitación</h2>
+            <h2 className="text-base font-bold text-white mb-1">{t("admin.invite_generate_title", "Generar Nueva Invitación")}</h2>
             <p className="text-xs text-slate-400 mb-4">
-              Crea códigos o enlaces que pueden ser compartidos libremente por WhatsApp o correo electrónico.
+              {t("admin.invite_generate_desc", "Crea códigos o enlaces que pueden ser compartidos libremente por WhatsApp o correo electrónico.")}
             </p>
 
             <form onSubmit={handleCreateInvitation} className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                  Usos Máximos (-1 = ilimitado)
+                  {t("admin.invite_max_uses_label", "Usos Máximos (-1 = ilimitado)")}
                 </label>
                 <input
                   type="number"
@@ -708,7 +710,7 @@ export default function AdminPage() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                  Vigencia (Días)
+                  {t("admin.invite_days_label", "Vigencia (Días)")}
                 </label>
                 <input
                   type="number"
@@ -723,24 +725,24 @@ export default function AdminPage() {
                 className="bg-purple-600 hover:bg-purple-500 text-white font-medium py-2.5 px-5 rounded-xl shadow-lg shadow-purple-600/20 flex items-center justify-center gap-2 transition-all text-sm"
               >
                 <Plus className="w-4 h-4" />
-                <span>Generar Invitación</span>
+                <span>{t("admin.btn_generate_invite", "Generar Invitación")}</span>
               </button>
             </form>
           </div>
 
           {/* Invites List */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-            <h3 className="text-base font-bold text-white">Invitaciones Activas</h3>
+            <h3 className="text-base font-bold text-white">{t("admin.invites_active_title", "Invitaciones Activas")}</h3>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="text-xs uppercase bg-slate-950/60 text-slate-400 border-b border-slate-800">
                   <tr>
-                    <th className="py-3 px-4">Código</th>
-                    <th className="py-3 px-4">Usos</th>
-                    <th className="py-3 px-4">Expiración</th>
-                    <th className="py-3 px-4">Compartir</th>
-                    <th className="py-3 px-4 text-right">Acciones</th>
+                    <th className="py-3 px-4">{t("admin.col_code", "Código")}</th>
+                    <th className="py-3 px-4">{t("admin.col_uses", "Usos")}</th>
+                    <th className="py-3 px-4">{t("admin.col_expiration", "Expiración")}</th>
+                    <th className="py-3 px-4">{t("admin.col_share", "Compartir")}</th>
+                    <th className="py-3 px-4 text-right">{t("admin.col_actions", "Acciones")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -753,7 +755,7 @@ export default function AdminPage() {
                         {inv.used_count} / {inv.max_uses === -1 ? "∞" : inv.max_uses}
                       </td>
                       <td className="py-3.5 px-4 text-xs text-slate-400">
-                        {inv.expires_at ? new Date(inv.expires_at).toLocaleDateString() : "Sin fecha"}
+                        {inv.expires_at ? new Date(inv.expires_at).toLocaleDateString() : t("admin.no_date", "Sin fecha")}
                       </td>
                       <td className="py-3.5 px-4">
                         <div className="flex items-center gap-2">
@@ -764,7 +766,7 @@ export default function AdminPage() {
                             title="Copiar enlace de registro"
                           >
                             <Copy className="w-3.5 h-3.5" />
-                            <span>{copiedId === inv.id ? "¡Copiado!" : "Copiar Enlace"}</span>
+                            <span>{copiedId === inv.id ? t("admin.copied", "¡Copiado!") : t("admin.copy_link", "Copiar Enlace")}</span>
                           </button>
 
                           {/* WhatsApp Share Button */}
@@ -796,10 +798,10 @@ export default function AdminPage() {
                             onClick={() => handleRevokeInvitation(inv.id)}
                             className="text-xs text-rose-400 hover:text-rose-300"
                           >
-                            Revocar
+                            {t("admin.revoke", "Revocar")}
                           </button>
                         ) : (
-                          <span className="text-xs text-slate-500">Revocada</span>
+                          <span className="text-xs text-slate-500">{t("admin.revoked", "Revocada")}</span>
                         )}
                       </td>
                     </tr>
@@ -816,16 +818,16 @@ export default function AdminPage() {
         <div className="space-y-6">
           {/* Add Project Form */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
-            <h2 className="text-base font-bold text-white mb-1">Añadir Nuevo Repositorio Web</h2>
+            <h2 className="text-base font-bold text-white mb-1">{t("admin.projects_add_title", "Añadir Nuevo Repositorio Web")}</h2>
             <p className="text-xs text-slate-400 mb-4">
-              Configura los proyectos sobre los cuales los usuarios podrán proponer prompts.
+              {t("admin.projects_add_desc", "Configura los proyectos sobre los cuales los usuarios podrán proponer prompts.")}
             </p>
 
             <form onSubmit={handleCreateProject} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                    Nombre del Proyecto
+                    {t("admin.project_name_label", "Nombre del Proyecto")}
                   </label>
                   <input
                     type="text"
@@ -839,7 +841,7 @@ export default function AdminPage() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                    URL del Repositorio GitHub
+                    {t("admin.project_repo_label", "URL del Repositorio GitHub")}
                   </label>
                   <input
                     type="text"
@@ -855,7 +857,7 @@ export default function AdminPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                    Rama por Defecto
+                    {t("admin.project_branch_label", "Rama por Defecto")}
                   </label>
                   <input
                     type="text"
@@ -868,7 +870,7 @@ export default function AdminPage() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                    GitHub Personal Access Token (PAT)
+                    {t("admin.project_pat_label", "GitHub Personal Access Token (PAT)")}
                   </label>
                   <input
                     type="password"
@@ -878,14 +880,14 @@ export default function AdminPage() {
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 font-mono"
                   />
                   <span className="text-[11px] text-slate-500 block mt-1">
-                    Necesario para crear ramas y PRs automáticamente en el repositorio.
+                    {t("admin.project_pat_desc", "Necesario para crear ramas y PRs automáticamente en el repositorio.")}
                   </span>
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                  Reglas y Directrices para la IA en este Proyecto (Opcional)
+                  {t("admin.project_rules_label", "Reglas y Directrices para la IA en este Proyecto (Opcional)")}
                 </label>
                 <textarea
                   rows={2}
@@ -902,7 +904,7 @@ export default function AdminPage() {
                   className="bg-purple-600 hover:bg-purple-500 text-white font-medium py-2.5 px-6 rounded-xl shadow-lg shadow-purple-600/20 flex items-center gap-2 text-sm"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Registrar Proyecto</span>
+                  <span>{t("admin.btn_register_project", "Registrar Proyecto")}</span>
                 </button>
               </div>
             </form>
@@ -912,10 +914,10 @@ export default function AdminPage() {
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-white">
-                Repositorios Registrados ({projectsList.length})
+                {t("admin.projects_registered_title", `Repositorios Registrados (${projectsList.length})`, { count: projectsList.length })}
               </h3>
               <p className="text-xs text-slate-400">
-                Visualiza, modifica parámetros y activa/pausa los repositorios disponibles.
+                {t("admin.projects_registered_desc", "Visualiza, modifica parámetros y activa/pausa los repositorios disponibles.")}
               </p>
             </div>
 
@@ -925,7 +927,7 @@ export default function AdminPage() {
                 type="text"
                 value={projectSearch}
                 onChange={(e) => setProjectSearch(e.target.value)}
-                placeholder="Buscar repositorio..."
+                placeholder={t("admin.search_repo_placeholder", "Buscar repositorio...")}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500 font-mono"
               />
             </div>
@@ -939,7 +941,7 @@ export default function AdminPage() {
           ).length === 0 ? (
             <div className="text-center py-12 bg-slate-900/40 border border-dashed border-slate-800 rounded-2xl">
               <FolderGit2 className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-              <p className="text-sm text-slate-400 font-medium">No se encontraron repositorios</p>
+              <p className="text-sm text-slate-400 font-medium">{t("admin.no_repos_found", "No se encontraron repositorios")}</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -967,7 +969,7 @@ export default function AdminPage() {
                                 : "bg-slate-800 text-slate-400 border border-slate-700"
                             }`}
                           >
-                            {p.is_active ? "Activo" : "Pausado"}
+                            {p.is_active ? t("admin.status_active", "Activo") : t("admin.status_paused", "Pausado")}
                           </span>
                         </div>
 
@@ -986,7 +988,7 @@ export default function AdminPage() {
                         {/* Toggle Active button */}
                         <button
                           onClick={() => handleToggleActiveProject(p)}
-                          title={p.is_active ? "Pausar repositorio" : "Activar repositorio"}
+                          title={p.is_active ? t("admin.tip_pause_repo", "Pausar repositorio") : t("admin.tip_activate_repo", "Activar repositorio")}
                           className={`p-2 rounded-lg text-xs transition-colors ${
                             p.is_active
                               ? "text-emerald-400 hover:bg-emerald-500/10"
@@ -999,7 +1001,7 @@ export default function AdminPage() {
                         {/* Edit button */}
                         <button
                           onClick={() => handleStartEditProject(p)}
-                          title="Modificar repositorio"
+                          title={t("admin.tip_edit_repo", "Modificar repositorio")}
                           className="p-2 text-slate-400 hover:text-purple-300 rounded-lg hover:bg-purple-500/10 transition-colors"
                         >
                           <Edit3 className="w-4 h-4" />
@@ -1008,7 +1010,7 @@ export default function AdminPage() {
                         {/* Delete button */}
                         <button
                           onClick={() => handleDeleteProject(p.id)}
-                          title="Eliminar repositorio"
+                          title={t("admin.tip_delete_repo", "Eliminar repositorio")}
                           className="p-2 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1018,18 +1020,18 @@ export default function AdminPage() {
 
                     <div className="text-xs text-slate-400 space-y-1 bg-slate-950 p-3 rounded-xl border border-slate-800/80 font-mono">
                       <div className="flex items-center justify-between">
-                        <span>Rama base: <strong className="text-slate-200">{p.default_branch}</strong></span>
+                        <span>{t("admin.base_branch_label", "Rama base:")} <strong className="text-slate-200">{p.default_branch}</strong></span>
                         <span>
                           {p.has_github_token ? (
-                            <span className="text-emerald-400 font-medium">● PAT Configurado</span>
+                            <span className="text-emerald-400 font-medium">{t("admin.pat_configured", "● PAT Configurado")}</span>
                           ) : (
-                            <span className="text-amber-400 font-medium">○ Sin PAT Personal</span>
+                            <span className="text-amber-400 font-medium">{t("admin.no_pat", "○ Sin PAT Personal")}</span>
                           )}
                         </span>
                       </div>
                       {p.system_prompt_rules && (
                         <div className="mt-1 text-[11px] text-slate-400 italic border-t border-slate-900 pt-1">
-                          Reglas: {p.system_prompt_rules}
+                          {t("admin.rules_prefix", "Reglas:")} {p.system_prompt_rules}
                         </div>
                       )}
                     </div>
@@ -1047,10 +1049,10 @@ export default function AdminPage() {
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-indigo-400" />
-                Configuración de Google Gemini AI para el Runner en Docker
+                {t("admin.gemini_settings_title", "Configuración de Google Gemini AI para el Runner en Docker")}
               </h2>
               <p className="text-xs text-slate-400 mt-1">
-                Configura la clave de API y el modelo de IA que se utilizarán dentro de los contenedores Docker para interpretar prompts, aplicar cambios en código y crear Pull Requests en GitHub.
+                {t("admin.gemini_settings_desc", "Configura la clave de API y el modelo de IA que se utilizarán dentro de los contenedores Docker para interpretar prompts, aplicar cambios en código y crear Pull Requests en GitHub.")}
               </p>
             </div>
 
@@ -1059,15 +1061,15 @@ export default function AdminPage() {
               <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
               <div className="text-xs space-y-0.5">
                 <div className="text-slate-200 font-semibold">
-                  Estado:{" "}
+                  {t("admin.status_label", "Estado:")}{" "}
                   {geminiConfig.configured ? (
-                    <span className="text-emerald-400 font-bold">API Key Configurada ({geminiConfig.masked_key})</span>
+                    <span className="text-emerald-400 font-bold">{t("admin.gemini_configured", `API Key Configurada (${geminiConfig.masked_key})`, { key: geminiConfig.masked_key })}</span>
                   ) : (
-                    <span className="text-amber-400 font-bold">No configurada (Modo simulación activo)</span>
+                    <span className="text-amber-400 font-bold">{t("admin.gemini_not_configured", "No configurada (Modo simulación activo)")}</span>
                   )}
                 </div>
                 <div className="text-slate-400 font-mono text-[11px]">
-                  Modelo activo: <span className="text-indigo-400 font-bold">{geminiConfig.model}</span>
+                  {t("admin.gemini_active_model", "Modelo activo:")} <span className="text-indigo-400 font-bold">{geminiConfig.model}</span>
                 </div>
               </div>
             </div>
@@ -1077,7 +1079,7 @@ export default function AdminPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                    Nueva Google Gemini API Key
+                    {t("admin.gemini_key_label", "Nueva Google Gemini API Key")}
                   </label>
                   <input
                     type="password"
@@ -1087,26 +1089,27 @@ export default function AdminPage() {
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
                   />
                   <span className="text-[11px] text-slate-500 block mt-1">
-                    Puedes obtenerla gratuitamente en <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline">Google AI Studio</a>.
+                    {t("admin.gemini_key_hint", "Puedes obtenerla gratuitamente en")}{" "}
+                    <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-400 underline">Google AI Studio</a>.
                   </span>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                    Modelo de Gemini
+                    {t("admin.gemini_model_label", "Modelo de Gemini")}
                   </label>
                   <select
                     value={geminiModelInput}
                     onChange={(e) => setGeminiModelInput(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
                   >
-                    <option value="gemini-3.6-flash">gemini-3.6-flash (Recomendado - Nueva Generación)</option>
-                    <option value="gemini-1.5-flash">gemini-1.5-flash (Ultra Rápido)</option>
-                    <option value="gemini-1.5-pro">gemini-1.5-pro (Razonamiento Complejo)</option>
-                    <option value="gemini-2.5-flash">gemini-2.5-flash (Legacy / Cuentas Antiguas)</option>
+                    <option value="gemini-3.6-flash">gemini-3.6-flash ({t("admin.model_rec", "Recomendado - Nueva Generación")})</option>
+                    <option value="gemini-1.5-flash">gemini-1.5-flash ({t("admin.model_fast", "Ultra Rápido")})</option>
+                    <option value="gemini-1.5-pro">gemini-1.5-pro ({t("admin.model_pro", "Razonamiento Complejo")})</option>
+                    <option value="gemini-2.5-flash">gemini-2.5-flash ({t("admin.model_legacy", "Legacy / Cuentas Antiguas")})</option>
                   </select>
                   <span className="text-[11px] text-slate-500 block mt-1">
-                    Modelo invocado por el contenedor Docker para planificar y editar código.
+                    {t("admin.gemini_model_desc", "Modelo invocado por el contenedor Docker para planificar y editar código.")}
                   </span>
                 </div>
               </div>
@@ -1122,22 +1125,22 @@ export default function AdminPage() {
                   ) : (
                     <Sparkles className="w-3.5 h-3.5" />
                   )}
-                  <span>Guardar Configuración Gemini</span>
+                  <span>{t("admin.btn_save_gemini", "Guardar Configuración Gemini")}</span>
                 </button>
               </div>
             </form>
 
             {/* Security Explanation */}
             <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800 text-xs text-slate-400 space-y-2">
-              <strong className="text-slate-200 block">Aislamiento y Seguridad en Docker:</strong>
+              <strong className="text-slate-200 block">{t("admin.docker_security_title", "Aislamiento y Seguridad en Docker:")}</strong>
               <p>
-                - La API Key de Gemini y los tokens de GitHub se inyectan únicamente como variables de entorno efímeras en memoria en el contenedor efímero <code className="text-indigo-400">vibe-runner</code>.
+                - {t("admin.docker_sec_line1", "La API Key de Gemini y los tokens de GitHub se inyectan únicamente como variables de entorno efímeras en memoria en el contenedor efímero vibe-runner.")}
               </p>
               <p>
-                - Nunca se guardan ni se commitean credenciales en los repositorios de GitHub.
+                - {t("admin.docker_sec_line2", "Nunca se guardan ni se commitean credenciales en los repositorios de GitHub.")}
               </p>
               <p>
-                - Los cambios se aíslan dentro del workspace temporal del contenedor y se envían a GitHub únicamente en ramas nuevas dedicadas (<code className="text-emerald-400">vibe/task-*</code>).
+                - {t("admin.docker_sec_line3", "Los cambios se aíslan dentro del workspace temporal del contenedor y se envían a GitHub únicamente en ramas nuevas dedicadas (vibe/task-*).")}
               </p>
             </div>
           </div>
@@ -1152,7 +1155,7 @@ export default function AdminPage() {
               <div className="flex items-center gap-2">
                 <Edit3 className="w-5 h-5 text-purple-400" />
                 <h3 className="font-bold text-white text-base">
-                  Modificar Repositorio GitHub
+                  {t("admin.edit_repo_title", "Modificar Repositorio GitHub")}
                 </h3>
               </div>
               <button
@@ -1166,7 +1169,7 @@ export default function AdminPage() {
             <form onSubmit={handleUpdateProject} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                  Nombre del Proyecto
+                  {t("admin.project_name_label", "Nombre del Proyecto")}
                 </label>
                 <input
                   type="text"
@@ -1179,7 +1182,7 @@ export default function AdminPage() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                  URL del Repositorio GitHub
+                  {t("admin.project_repo_label", "URL del Repositorio GitHub")}
                 </label>
                 <input
                   type="text"
@@ -1193,7 +1196,7 @@ export default function AdminPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                    Rama Base por Defecto
+                    {t("admin.project_branch_label", "Rama Base por Defecto")}
                   </label>
                   <input
                     type="text"
@@ -1206,13 +1209,13 @@ export default function AdminPage() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                    Actualizar PAT (Opcional)
+                    {t("admin.project_pat_update_label", "Actualizar PAT (Opcional)")}
                   </label>
                   <input
                     type="password"
                     value={editProjToken}
                     onChange={(e) => setEditProjToken(e.target.value)}
-                    placeholder={editingProject.has_github_token ? "Mantener actual..." : "ghp_..."}
+                    placeholder={editingProject.has_github_token ? t("admin.pat_keep_current", "Mantener actual...") : "ghp_..."}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 font-mono"
                   />
                 </div>
@@ -1220,13 +1223,13 @@ export default function AdminPage() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                  Reglas y Directrices para la IA
+                  {t("admin.project_rules_label", "Reglas y Directrices para la IA")}
                 </label>
                 <textarea
                   rows={3}
                   value={editProjRules}
                   onChange={(e) => setEditProjRules(e.target.value)}
-                  placeholder="Directrices técnicas que Gemini aplicará en este repositorio..."
+                  placeholder={t("admin.project_rules_placeholder", "Directrices técnicas que Gemini aplicará en este repositorio...")}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
                 />
               </div>
@@ -1240,7 +1243,7 @@ export default function AdminPage() {
                   className="w-4 h-4 rounded bg-slate-900 border-slate-700 text-purple-600 focus:ring-purple-500"
                 />
                 <label htmlFor="editProjActive" className="text-xs text-slate-300 select-none cursor-pointer">
-                  Repositorio activo (visible y seleccionable para que los usuarios envíen prompts)
+                  {t("admin.project_active_checkbox", "Repositorio activo (visible y seleccionable para que los usuarios envíen prompts)")}
                 </label>
               </div>
 
@@ -1250,7 +1253,7 @@ export default function AdminPage() {
                   onClick={() => setEditingProject(null)}
                   className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition-colors"
                 >
-                  Cancelar
+                  {t("common.cancel", "Cancelar")}
                 </button>
                 <button
                   type="submit"
@@ -1262,7 +1265,7 @@ export default function AdminPage() {
                   ) : (
                     <CheckCircle2 className="w-3.5 h-3.5" />
                   )}
-                  <span>Guardar Cambios</span>
+                  <span>{t("common.save_changes", "Guardar Cambios")}</span>
                 </button>
               </div>
             </form>
@@ -1279,10 +1282,10 @@ export default function AdminPage() {
               <div>
                 <h2 className="text-base font-bold text-white flex items-center gap-2">
                   <Coins className="w-5 h-5 text-indigo-400" />
-                  <span>Control de Cuotas de Tokens (Ventana de 5 Horas)</span>
+                  <span>{t("admin.token_quotas_title", "Control de Cuotas de Tokens (Ventana de 5 Horas)")}</span>
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Límites de consumo para mitigar envíos masivos de prompts. Se decrementan con el uso real reportado por Gemini.
+                  {t("admin.token_quotas_desc", "Límites de consumo para mitigar envíos masivos de prompts. Se decrementan con el uso real reportado por Gemini.")}
                 </p>
               </div>
 
@@ -1290,7 +1293,7 @@ export default function AdminPage() {
                 <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5 pointer-events-none" />
                 <input
                   type="text"
-                  placeholder="Buscar usuario o email..."
+                  placeholder={t("admin.search_user_email", "Buscar usuario o email...")}
                   value={quotaSearch}
                   onChange={(e) => setQuotaSearch(e.target.value)}
                   className="bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-purple-500 w-full sm:w-64"
@@ -1302,13 +1305,13 @@ export default function AdminPage() {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                   <tr>
-                    <th className="py-3 px-4">Usuario</th>
-                    <th className="py-3 px-4">Límite</th>
-                    <th className="py-3 px-4">Consumido</th>
-                    <th className="py-3 px-4">Restante</th>
-                    <th className="py-3 px-4">Estado</th>
-                    <th className="py-3 px-4">Reinicio en</th>
-                    <th className="py-3 px-4 text-right">Acciones</th>
+                    <th className="py-3 px-4">{t("admin.col_user", "Usuario")}</th>
+                    <th className="py-3 px-4">{t("admin.col_limit", "Límite")}</th>
+                    <th className="py-3 px-4">{t("admin.col_consumed", "Consumido")}</th>
+                    <th className="py-3 px-4">{t("admin.col_remaining", "Restante")}</th>
+                    <th className="py-3 px-4">{t("admin.col_status", "Estado")}</th>
+                    <th className="py-3 px-4">{t("admin.col_reset_in", "Reinicio en")}</th>
+                    <th className="py-3 px-4 text-right">{t("admin.col_actions", "Acciones")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60">
@@ -1357,11 +1360,11 @@ export default function AdminPage() {
                         <td className="py-3.5 px-4">
                           {q.is_exceeded ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                              Agotada (429)
+                              {t("dashboard.limit_reached", "Agotada (429)")}
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                              Disponible
+                              {t("common.available", "Disponible")}
                             </span>
                           )}
                         </td>
@@ -1374,15 +1377,15 @@ export default function AdminPage() {
                               onClick={() => handleStartEditQuota(q)}
                               className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-colors"
                             >
-                              Editar
+                              {t("common.edit", "Editar")}
                             </button>
                             <button
                               onClick={() => handleResetQuota(q.user_id, q.email)}
                               disabled={resettingQuotaId === q.user_id}
                               className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-medium border border-indigo-500/30 transition-colors disabled:opacity-50"
-                              title="Reiniciar consumo a 0 y resetear ventana"
+                              title={t("admin.reset_quota_title", "Reiniciar consumo a 0 y resetear ventana")}
                             >
-                              {resettingQuotaId === q.user_id ? "Reiniciando..." : "Reiniciar"}
+                              {resettingQuotaId === q.user_id ? t("admin.resetting", "Reiniciando...") : t("admin.reset_user_quota", "Reiniciar")}
                             </button>
                           </div>
                         </td>
@@ -1398,16 +1401,16 @@ export default function AdminPage() {
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
                 <Database className="w-5 h-5 text-indigo-400" />
-                <span>Contextos Personales de Usuarios</span>
+                <span>{t("admin.personal_contexts_title", "Contextos Personales de Usuarios")}</span>
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Vista de administración de todos los contextos creados por usuarios. Cada usuario sólo puede acceder a los suyos en su workspace.
+                {t("admin.personal_contexts_desc", "Vista de administración de todos los contextos creados por usuarios. Cada usuario sólo puede acceder a los suyos en su workspace.")}
               </p>
             </div>
 
             {adminContextsList.length === 0 ? (
               <div className="text-center py-10 border border-dashed border-slate-800 rounded-xl text-slate-400 text-xs">
-                No hay contextos personales registrados todavía en la plataforma.
+                {t("admin.no_personal_contexts", "No hay contextos personales registrados todavía en la plataforma.")}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -1415,13 +1418,13 @@ export default function AdminPage() {
                   <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                     <tr>
                       <th className="py-3 px-4">ID</th>
-                      <th className="py-3 px-4">Usuario ID</th>
-                      <th className="py-3 px-4">Identificador</th>
-                      <th className="py-3 px-4">Nombre y Descripción</th>
-                      <th className="py-3 px-4">Tamaño</th>
-                      <th className="py-3 px-4">Gemini Cache</th>
-                      <th className="py-3 px-4">Fecha</th>
-                      <th className="py-3 px-4 text-right">Acciones</th>
+                      <th className="py-3 px-4">{t("admin.col_user_id", "Usuario ID")}</th>
+                      <th className="py-3 px-4">{t("admin.col_identifier", "Identificador")}</th>
+                      <th className="py-3 px-4">{t("admin.col_name_desc", "Nombre y Descripción")}</th>
+                      <th className="py-3 px-4">{t("admin.col_size", "Tamaño")}</th>
+                      <th className="py-3 px-4">{t("admin.col_gemini_cache", "Gemini Cache")}</th>
+                      <th className="py-3 px-4">{t("admin.col_date", "Fecha")}</th>
+                      <th className="py-3 px-4 text-right">{t("admin.col_actions", "Acciones")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60">
@@ -1441,8 +1444,8 @@ export default function AdminPage() {
                           )}
                         </td>
                         <td className="py-3.5 px-4 font-mono text-slate-300">
-                          <div>{ctx.character_count.toLocaleString()} chars</div>
-                          <div className="text-[10px] text-slate-500">~{ctx.estimated_tokens.toLocaleString()} tokens</div>
+                          <div>{ctx.character_count.toLocaleString()} {t("contexts.chars_label", "chars")}</div>
+                          <div className="text-[10px] text-slate-500">~{ctx.estimated_tokens.toLocaleString()} {t("contexts.tokens_label", "tokens")}</div>
                         </td>
                         <td className="py-3.5 px-4">
                           {ctx.gemini_cache_name ? (
@@ -1450,7 +1453,7 @@ export default function AdminPage() {
                               Cached
                             </span>
                           ) : (
-                            <span className="text-[10px] text-slate-500">Inyección estándar</span>
+                            <span className="text-[10px] text-slate-500">{t("admin.standard_injection", "Inyección estándar")}</span>
                           )}
                         </td>
                         <td className="py-3.5 px-4 text-slate-500 text-[11px]">
@@ -1461,7 +1464,7 @@ export default function AdminPage() {
                             onClick={() => handleDeleteAdminContext(ctx.id, ctx.name)}
                             disabled={deletingCtxId === ctx.id}
                             className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                            title="Eliminar contexto"
+                            title={t("admin.delete_context_title", "Eliminar contexto")}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

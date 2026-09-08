@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { useI18n } from "@/lib/i18n-context";
 import { apiRequest, ChatMessage, ChatThread, getToken } from "@/lib/api";
 import { 
   MessageSquare, 
@@ -19,6 +20,7 @@ function ChatContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
+  const { t } = useI18n();
 
   const [threads, setThreads] = useState<ChatThread[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -149,7 +151,7 @@ function ChatContent() {
       setMessages((prev) => [...prev, newMsg]);
       loadThreads();
     } catch (err: any) {
-      alert("Error al enviar mensaje: " + err.message);
+      alert((t("chat.error_send", "Error al enviar mensaje: ")) + err.message);
     } finally {
       setSending(false);
     }
@@ -173,7 +175,7 @@ function ChatContent() {
           <div className="p-4 border-b border-slate-800">
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-indigo-400" />
-              {user.role === "admin" ? "Bandeja de Mensajes" : "Chat con Administración"}
+              {user.role === "admin" ? t("chat.inbox_title", "Bandeja de Mensajes") : t("chat.title", "Chat Interno")}
             </h2>
 
             {user.role === "admin" && (
@@ -183,17 +185,17 @@ function ChatContent() {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar usuario..."
+                  placeholder={t("chat.search_placeholder", "Buscar usuario...")}
                   className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
               </div>
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-850">
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-855">
             {filteredThreads.length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-500">
-                No hay conversaciones disponibles.
+                {t("chat.no_threads", "No tienes conversaciones activas.")}
               </div>
             ) : (
               filteredThreads.map((thread) => {
@@ -270,7 +272,7 @@ function ChatContent() {
                       {selectedThread.other_user_name}
                     </h3>
                     <span className="text-xs text-slate-400 font-mono">
-                      {selectedThread.other_user_email} • Rol: {selectedThread.other_user_role}
+                      {selectedThread.other_user_email} • {t("admin.role_col", "Rol:")} {selectedThread.other_user_role}
                     </span>
                   </div>
                 </div>
@@ -281,7 +283,7 @@ function ChatContent() {
                 {messages.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs">
                     <Sparkles className="w-8 h-8 text-slate-600 mb-2" />
-                    <span>Inicia la conversación enviando un mensaje.</span>
+                    <span>{t("chat.start_conversation", "Inicia la conversación enviando un mensaje.")}</span>
                   </div>
                 ) : (
                   messages.map((m) => {
@@ -317,7 +319,7 @@ function ChatContent() {
                   type="text"
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
-                  placeholder="Escribe un mensaje..."
+                  placeholder={t("chat.type_message", "Escribe un mensaje...")}
                   className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
                 <button
@@ -326,13 +328,13 @@ function ChatContent() {
                   className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>Enviar</span>
+                  <span>{t("chat.send_message", "Enviar")}</span>
                 </button>
               </form>
             </>
           ) : (
             <div className="h-full flex items-center justify-center text-slate-500 text-xs">
-              Selecciona una conversación del panel izquierdo
+              {t("chat.select_thread", "Selecciona un usuario para comenzar a chatear")}
             </div>
           )}
         </div>

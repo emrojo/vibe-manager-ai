@@ -93,6 +93,10 @@ export interface PromptTask {
   context_id?: number;
   context_name?: string;
   tokens_used?: number;
+  tokens_fixed_context?: number;
+  tokens_temporal_context?: number;
+  temporal_context?: string;
+  temporal_context_status?: "ACTIVE" | "MERGED" | "DISCARDED" | string;
   created_at: string;
   updated_at: string;
 }
@@ -196,10 +200,19 @@ export async function modifyTaskPlan(
 export interface UserContext {
   id: number;
   user_id: number;
+  repo_validator_id?: number;
+  validator_name?: string;
   identifier: string;
   name: string;
   description?: string;
   context_text: string;
+  status?: string;
+  version?: number;
+  edited_text?: string;
+  accepted_text?: string;
+  plan_markdown?: string;
+  plan_feedback?: string;
+  rejection_reason?: string;
   character_count: number;
   estimated_tokens: number;
   gemini_cache_name?: string;
@@ -213,6 +226,7 @@ export interface UserContextCreate {
   name: string;
   description?: string;
   context_text: string;
+  repo_validator_id?: number;
 }
 
 export interface UserTokenLog {
@@ -221,6 +235,8 @@ export interface UserTokenLog {
   task_id?: number;
   context_id?: number;
   tokens_prompt: number;
+  tokens_fixed_context?: number;
+  tokens_temporal_context?: number;
   tokens_completion: number;
   tokens_total: number;
   tokens_cached: number;
@@ -269,6 +285,24 @@ export async function getUserContexts(): Promise<UserContext[]> {
   return apiRequest<UserContext[]>("/contexts");
 }
 
+export async function getAcceptedUserContexts(): Promise<UserContext[]> {
+  return apiRequest<UserContext[]>("/contexts/accepted");
+}
+
+export interface ActiveTemporalTask {
+  id: number;
+  original_prompt: string;
+  status: string;
+  context_id?: number;
+  tokens_estimated: number;
+  character_count: number;
+  created_at: string;
+}
+
+export async function getActiveTemporalTasks(): Promise<ActiveTemporalTask[]> {
+  return apiRequest<ActiveTemporalTask[]>("/contexts/temporal/active");
+}
+
 export async function createUserContext(data: UserContextCreate): Promise<UserContext> {
   return apiRequest<UserContext>("/contexts", {
     method: "POST",
@@ -287,6 +321,9 @@ export interface ContextEstimateResponse {
   prompt_tokens_estimated: number;
   context_chars: number;
   context_tokens_estimated: number;
+  temporal_chars?: number;
+  temporal_tokens_estimated?: number;
+  cached_tokens_estimated?: number;
   total_chars: number;
   total_tokens_estimated: number;
   fits_in_quota: boolean;
@@ -297,6 +334,8 @@ export async function estimateContextTokens(data: {
   prompt: string;
   context_id?: number | null;
   context_text?: string | null;
+  temporal_task_id?: number | null;
+  temporal_context_text?: string | null;
 }): Promise<ContextEstimateResponse> {
   return apiRequest<ContextEstimateResponse>("/contexts/estimate", {
     method: "POST",

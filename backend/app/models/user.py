@@ -28,5 +28,5 @@ class User(Base):
     sent_messages = relationship("ChatMessage", back_populates="sender", foreign_keys="ChatMessage.sender_id")
     received_messages = relationship("ChatMessage", back_populates="recipient", foreign_keys="ChatMessage.recipient_id")
     validator_repos = relationship("RepoValidator", back_populates="validator", cascade="all, delete-orphan")
-    contexts = relationship("UserContext", back_populates="user", cascade="all, delete-orphan")
+    contexts = relationship("UserContext", back_populates="user", cascade="all, delete-orphan", foreign_keys="[UserContext.user_id]")
     token_logs = relationship("UserTokenLog", back_populates="user", cascade="all, delete-orphan")

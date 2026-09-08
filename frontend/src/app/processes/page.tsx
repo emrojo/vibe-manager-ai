@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import { useI18n } from "@/lib/i18n-context";
 import { apiRequest } from "@/lib/api";
 import LiveConsoleModal from "@/components/LiveConsoleModal";
 import { 
@@ -41,6 +42,7 @@ interface ProcessItem {
 export default function ProcessesPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const { t } = useI18n();
 
   const [processes, setProcesses] = useState<ProcessItem[]>([]);
   const [runningCount, setRunningCount] = useState<number>(0);
@@ -84,7 +86,7 @@ export default function ProcessesPage() {
       });
       await loadProcesses(false);
     } catch (err: any) {
-      alert(err.message || "Error al reintentar la tarea");
+      alert(err.message || t("processes.error_retry", "Error al reintentar la tarea"));
     } finally {
       setRetryingId(null);
     }
@@ -93,7 +95,7 @@ export default function ProcessesPage() {
   const [stoppingId, setStoppingId] = useState<number | null>(null);
 
   const handleStopProcess = async (taskId: number) => {
-    if (!confirm("¿Deseas detener y abortar la ejecución de este proceso inmediatamente?")) return;
+    if (!confirm(t("processes.confirm_stop", "¿Deseas detener y abortar la ejecución de este proceso inmediatamente?"))) return;
     setStoppingId(taskId);
     try {
       await apiRequest(`/processes/${taskId}/stop`, {
@@ -101,7 +103,7 @@ export default function ProcessesPage() {
       });
       await loadProcesses(false);
     } catch (err: any) {
-      alert(err.message || "Error al detener el proceso");
+      alert(err.message || t("processes.error_stop", "Error al detener el proceso"));
     } finally {
       setStoppingId(null);
     }
@@ -153,10 +155,10 @@ export default function ProcessesPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white flex items-center gap-3">
             <Activity className="w-7 h-7 text-indigo-400" />
-            Monitor de Procesos en Tiempo Real
+            {t("processes.title", "Monitor de Procesos y Contenedores")}
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Supervisa el estado, las etapas de ejecución y accede a la consola en vivo de los sandbox Docker.
+            {t("processes.subtitle", "Supervisión en tiempo real de ejecuciones en sandboxes aislados de Docker")}
           </p>
         </div>
 
@@ -166,7 +168,7 @@ export default function ProcessesPage() {
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-sm font-medium text-slate-300 transition-all shadow-sm"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-          <span>Refrescar</span>
+          <span>{t("common.refresh", "Refrescar")}</span>
         </button>
       </div>
 
@@ -178,7 +180,7 @@ export default function ProcessesPage() {
           </div>
           <div>
             <span className="text-xs text-slate-400 font-medium uppercase tracking-wider block">
-              En Ejecución
+              {t("processes.active_containers", "Contenedores Activos")}
             </span>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="text-2xl font-black text-white">{runningCount}</span>
@@ -198,7 +200,7 @@ export default function ProcessesPage() {
           </div>
           <div>
             <span className="text-xs text-slate-400 font-medium uppercase tracking-wider block">
-              En Cola / Pendientes
+              {t("processes.queue_tasks", "Tareas en Cola")}
             </span>
             <span className="text-2xl font-black text-white mt-0.5 block">{pendingCount}</span>
           </div>
@@ -210,7 +212,7 @@ export default function ProcessesPage() {
           </div>
           <div>
             <span className="text-xs text-slate-400 font-medium uppercase tracking-wider block">
-              Completadas Recientes
+              {t("processes.completed_recent", "Completadas Recientes")}
             </span>
             <span className="text-2xl font-black text-white mt-0.5 block">
               {processes.filter((p) => p.status === "COMPLETED").length}
@@ -224,7 +226,7 @@ export default function ProcessesPage() {
           </div>
           <div>
             <span className="text-xs text-slate-400 font-medium uppercase tracking-wider block">
-              Fallidas / Con Error
+              {t("processes.failed_recent", "Fallidas / Con Error")}
             </span>
             <span className="text-2xl font-black text-white mt-0.5 block">
               {processes.filter((p) => p.status === "FAILED").length}
@@ -236,10 +238,10 @@ export default function ProcessesPage() {
       {/* Filter Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
         {[
-          { id: "ALL", label: "Todos los Procesos" },
-          { id: "RUNNING", label: `En Ejecución (${runningCount})` },
-          { id: "COMPLETED", label: "Completados" },
-          { id: "FAILED", label: "Con Error" },
+          { id: "ALL", label: t("processes.tab_all", "Todos los Procesos") },
+          { id: "RUNNING", label: `${t("processes.tab_running", "En Ejecución")} (${runningCount})` },
+          { id: "COMPLETED", label: t("processes.tab_completed", "Completados") },
+          { id: "FAILED", label: t("processes.tab_failed", "Con Error") },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -260,10 +262,10 @@ export default function ProcessesPage() {
         <div className="text-center py-16 bg-slate-900/40 border border-dashed border-slate-800 rounded-2xl space-y-2">
           <Layers className="w-10 h-10 text-slate-600 mx-auto" />
           <h3 className="text-base font-semibold text-slate-300">
-            No hay procesos en esta categoría ({filterTab})
+            {t("processes.no_processes", "No hay procesos en ejecución en este momento.")}
           </h3>
           <p className="text-xs text-slate-500">
-            Los procesos se registrarán automáticamente cuando las tareas aprobadas entren al runner sandbox.
+            {t("processes.no_processes_desc", "Los procesos se registrarán automáticamente cuando las tareas aprobadas entren al runner sandbox.")}
           </p>
         </div>
       ) : (
@@ -297,7 +299,7 @@ export default function ProcessesPage() {
                         {proc.project_name}
                       </h3>
                       <span className="text-xs text-slate-400">
-                        por <strong className="text-slate-300">{proc.user_name}</strong>
+                        {t("common.by", "por")} <strong className="text-slate-300">{proc.user_name}</strong>
                       </span>
                     </div>
 
@@ -328,7 +330,7 @@ export default function ProcessesPage() {
                           : "bg-slate-800 text-slate-400 border border-slate-700"
                       }`}
                     >
-                      {proc.status === "STOPPED" ? "DETENIDO" : proc.status}
+                      {proc.status === "STOPPED" ? t("processes.status_stopped", "DETENIDO") : proc.status}
                     </span>
                   </div>
                 </div>
@@ -336,9 +338,9 @@ export default function ProcessesPage() {
                 {/* Stage Info */}
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/80">
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="text-slate-500 font-medium">Etapa:</span>
+                    <span className="text-slate-500 font-medium">{t("processes.stage_label", "Etapa:")}</span>
                     <span className="text-slate-300 font-mono bg-slate-950 px-2.5 py-1 rounded-md border border-slate-800">
-                      {proc.stage || (isRunning ? "Ejecutando sandbox..." : proc.status)}
+                      {proc.stage || (isRunning ? t("processes.stage_running_sandbox", "Ejecutando sandbox...") : proc.status)}
                     </span>
                   </div>
 
@@ -352,7 +354,7 @@ export default function ProcessesPage() {
                         className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 transition-colors"
                       >
                         <GitPullRequest className="w-3.5 h-3.5" />
-                        <span>PR #{proc.pr_number || "Ver"}</span>
+                        <span>PR #{proc.pr_number || t("pullRequests.view_pr", "Ver")}</span>
                         <ExternalLink className="w-3 h-3" />
                       </a>
                     )}
@@ -362,10 +364,10 @@ export default function ProcessesPage() {
                         onClick={() => handleStopProcess(proc.id)}
                         disabled={stoppingId === proc.id}
                         className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
-                        title="Detener y matar proceso en ejecución"
+                        title={t("modals.stop_process_title", "Detener y matar proceso en ejecución")}
                       >
                         <Square className={`w-3.5 h-3.5 fill-current ${stoppingId === proc.id ? "animate-pulse" : ""}`} />
-                        <span>{stoppingId === proc.id ? "Deteniendo..." : "Detener Proceso"}</span>
+                        <span>{stoppingId === proc.id ? t("processes.stopping", "Deteniendo...") : t("processes.stop_container", "Detener Proceso")}</span>
                       </button>
                     )}
 
@@ -376,7 +378,7 @@ export default function ProcessesPage() {
                         className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${retryingId === proc.id ? "animate-spin" : ""}`} />
-                        <span>Reintentar</span>
+                        <span>{t("validator.retry_execution", "Reintentar")}</span>
                       </button>
                     )}
 
@@ -389,7 +391,7 @@ export default function ProcessesPage() {
                       }`}
                     >
                       <Terminal className="w-3.5 h-3.5" />
-                      <span>{isRunning ? "Ver Consola en Vivo" : "Ver Consola"}</span>
+                      <span>{isRunning ? t("dashboard.live_console", "Ver Consola en Vivo") : t("dashboard.console", "Ver Consola")}</span>
                     </button>
                   </div>
                 </div>
@@ -400,10 +402,10 @@ export default function ProcessesPage() {
                     <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                     <div className="space-y-0.5">
                       <strong className="text-amber-400 font-semibold block">
-                        Proceso Detenido Manualmente:
+                        {t("modals.process_stopped_manual", "Proceso Detenido Manualmente:")}
                       </strong>
                       <p className="font-mono text-amber-200/90 whitespace-pre-wrap leading-relaxed text-[11px]">
-                        {proc.error_message || "La tarea fue cancelada o detenida por el usuario."}
+                        {proc.error_message || t("processes.task_stopped_desc", "La tarea fue cancelada o detenida por el usuario.")}
                       </p>
                     </div>
                   </div>
@@ -415,10 +417,10 @@ export default function ProcessesPage() {
                     <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                     <div className="space-y-0.5">
                       <strong className="text-rose-400 font-semibold block">
-                        Causa del Error de Ejecución:
+                        {t("modals.error_cause_title", "Causa del Error de Ejecución:")}
                       </strong>
                       <p className="font-mono whitespace-pre-wrap leading-relaxed">
-                        {proc.error_message || "Fallo en el contenedor del runner sin detalles adicionales."}
+                        {proc.error_message || t("processes.runner_crash_desc", "Fallo en el contenedor del runner sin detalles adicionales.")}
                       </p>
                     </div>
                   </div>

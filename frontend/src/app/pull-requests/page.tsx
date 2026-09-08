@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
+import { useI18n } from "@/lib/i18n-context";
 import { apiRequest, PromptTask } from "@/lib/api";
 import { 
   GitPullRequest, 
@@ -26,6 +27,7 @@ import LiveConsoleModal from "@/components/LiveConsoleModal";
 export default function PullRequestsPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const { t } = useI18n();
 
   const [pullRequests, setPullRequests] = useState<PromptTask[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,10 +102,10 @@ export default function PullRequestsPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white flex items-center gap-3">
             <GitPullRequest className="w-7 h-7 text-emerald-400" />
-            Mis Pull Requests en GitHub
+            {t("pullRequests.title", "Mis Pull Requests")}
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Revisa todos los Pull Requests generados automáticamente a partir de tus prompts validados y ejecutados en Docker.
+            {t("pullRequests.subtitle", "Ramas y Pull Requests generados automáticamente por la IA en GitHub")}
           </p>
         </div>
 
@@ -113,7 +115,7 @@ export default function PullRequestsPage() {
             className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-all"
           >
             <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Crear Nuevo Prompt</span>
+            <span>{t("pullRequests.create_new_prompt", "Crear Nuevo Prompt")}</span>
           </Link>
 
           <button
@@ -122,7 +124,7 @@ export default function PullRequestsPage() {
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-xs font-medium text-slate-300 transition-all"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
-            <span>Actualizar</span>
+            <span>{t("common.refresh", "Actualizar")}</span>
           </button>
         </div>
       </div>
@@ -136,7 +138,7 @@ export default function PullRequestsPage() {
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por commit, rama o contenido del prompt..."
+            placeholder={t("pullRequests.search_placeholder", "Buscar por commit, rama o contenido del prompt...")}
             className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-all"
           />
         </div>
@@ -149,7 +151,7 @@ export default function PullRequestsPage() {
               onChange={(e) => setSelectedProject(e.target.value)}
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
             >
-              <option value="ALL">Todos los Proyectos ({pullRequests.length})</option>
+              <option value="ALL">{t("pullRequests.all_projects", "Todos los Proyectos")} ({pullRequests.length})</option>
               {uniqueProjects.map((pName) => (
                 <option key={pName} value={pName}>
                   {pName}
@@ -170,20 +172,20 @@ export default function PullRequestsPage() {
           <GitPullRequest className="w-12 h-12 text-slate-600 mx-auto" />
           <h3 className="text-base font-semibold text-slate-300">
             {pullRequests.length === 0
-              ? "Aún no tienes Pull Requests creados."
-              : "No se encontraron Pull Requests con los filtros aplicados."}
+              ? t("pullRequests.no_prs", "Aún no se ha generado ningún Pull Request.")
+              : t("pullRequests.no_matching_prs", "No se encontraron Pull Requests con los filtros aplicados.")}
           </h3>
           <p className="text-xs text-slate-500 max-w-md mx-auto">
             {pullRequests.length === 0
-              ? "Cuando un Validador apruebe uno de tus prompts, el agente de IA en Docker generará automáticamente una rama y un Pull Request en GitHub que aparecerá aquí."
-              : "Prueba a cambiar el término de búsqueda o selecciona 'Todos los Proyectos'."}
+              ? t("pullRequests.no_prs_desc", "Cuando un Validador apruebe uno de tus prompts, el agente de IA en Docker generará automáticamente una rama y un Pull Request en GitHub que aparecerá aquí.")
+              : t("pullRequests.try_changing_filters", "Prueba a cambiar el término de búsqueda o selecciona 'Todos los Proyectos'.")}
           </p>
           {pullRequests.length === 0 && (
             <Link
               href="/dashboard"
               className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-xs font-semibold rounded-xl shadow-lg shadow-indigo-600/20 mt-2"
             >
-              <span>Ir al Workspace de Prompts</span>
+              <span>{t("pullRequests.go_to_workspace", "Ir al Workspace de Prompts")}</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           )}
@@ -204,7 +206,7 @@ export default function PullRequestsPage() {
                       {task.project_name || `Proyecto #${task.project_id}`}
                     </span>
                     <span className="text-[11px] font-mono text-slate-500">
-                      • Tarea #{task.id}
+                      • {t("dashboard.task", "Tarea")} #{task.id}
                     </span>
                   </div>
 
@@ -224,7 +226,7 @@ export default function PullRequestsPage() {
                     className="bg-emerald-600/15 hover:bg-emerald-600/25 border border-emerald-500/30 text-emerald-300 font-semibold px-4 py-2 rounded-xl text-xs flex items-center gap-2 transition-all shadow-md group"
                   >
                     <GitPullRequest className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
-                    <span>Abrir PR en GitHub #{task.pr_number || ""}</span>
+                    <span>{t("pullRequests.open_github_pr", "Abrir PR en GitHub")} #{task.pr_number || ""}</span>
                     <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
                   </a>
                 )}
@@ -236,13 +238,13 @@ export default function PullRequestsPage() {
                   <div className="flex items-center justify-between bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800/80 font-mono">
                     <div className="flex items-center gap-2 truncate">
                       <GitBranch className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                      <span className="text-slate-400">Rama:</span>
+                      <span className="text-slate-400">{t("dashboard.branch_label", "Rama:")}</span>
                       <span className="text-indigo-300 truncate">{task.branch_name}</span>
                     </div>
                     <button
                       onClick={() => handleCopyBranch(task.branch_name!, task.id)}
                       className="text-slate-500 hover:text-slate-300 ml-2"
-                      title="Copiar nombre de rama"
+                      title={t("pullRequests.copy_branch", "Copiar nombre de rama")}
                     >
                       {copiedBranchId === task.id ? (
                         <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -255,9 +257,9 @@ export default function PullRequestsPage() {
 
                 <div className="flex items-center gap-2 bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-800/80 text-slate-400">
                   <UserCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  <span>Validado por:</span>
+                  <span>{t("pullRequests.validated_by", "Validado por:")}</span>
                   <strong className="text-slate-200">
-                    {task.validator_name || "Validador Autorizado"}
+                    {task.validator_name || t("pullRequests.authorized_validator", "Validador Autorizado")}
                   </strong>
                   <span className="text-[11px] text-slate-500 ml-auto">
                     {new Date(task.created_at).toLocaleDateString()}
@@ -268,14 +270,14 @@ export default function PullRequestsPage() {
               {/* Prompt Box */}
               <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800/60 space-y-2">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 block">
-                  Prompt que originó el cambio:
+                  {t("pullRequests.prompt_originated_change", "Prompt que originó el cambio:")}
                 </span>
                 <p className="text-xs text-slate-300 font-mono whitespace-pre-wrap leading-relaxed">
                   {task.edited_prompt ? task.edited_prompt : task.original_prompt}
                 </p>
                 {task.edited_prompt && (
                   <span className="text-[10px] text-amber-400/90 block italic">
-                    (Refinado y optimizado técnicamente por el Validador)
+                    {t("dashboard.adjusted_by_validator", "(Ajustado por validador)")}
                   </span>
                 )}
               </div>
@@ -285,7 +287,7 @@ export default function PullRequestsPage() {
                 <div className="flex items-center gap-2">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                     <CheckCircle2 className="w-3.5 h-3.5" />
-                    Completado en Docker
+                    {t("pullRequests.completed_docker", "Completado en Docker")}
                   </span>
                 </div>
 
@@ -295,7 +297,7 @@ export default function PullRequestsPage() {
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-colors"
                   >
                     <Terminal className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Ver Logs de Ejecución</span>
+                    <span>{t("pullRequests.view_execution_logs", "Ver Logs de Ejecución")}</span>
                   </button>
                 )}
               </div>

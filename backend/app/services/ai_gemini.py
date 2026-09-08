@@ -107,3 +107,82 @@ async def generate_code_changes(
             return parsed
         except Exception as e:
             raise RuntimeError(f"Error parseando respuesta JSON de Gemini: {str(e)}\nRespuesta cruda: {data}")
+
+async def generate_context_plan(
+    context_text: str,
+    feedback: Optional[str] = None,
+    current_plan: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None
+) -> str:
+    """
+    Calls Google Gemini to generate a structured Technical Context Plan in Markdown.
+    If feedback or a current plan is provided, refines the plan based on validator input.
+    """
+    key = api_key or settings.GEMINI_API_KEY
+    chosen_model = model or settings.GEMINI_MODEL
+
+    system_instruction = (
+        "Eres un Arquitecto de Software Principal de élite. Tu objetivo es analizar directrices, normas y requerimientos "
+        "de contexto técnico proporcionados por desarrolladores y validadores, y sintetizar un 'Plan de Contexto Técnico' "
+        "estructurado, riguroso y exhaustivo en Markdown.\n"
+        "El plan debe incluir:\n"
+        "1. ## Objetivo y Alcance del Contexto\n"
+        "2. ## Convenciones de Arquitectura y Patrones Recomendados\n"
+        "3. ## Restricciones Técnicas y Buenas Prácticas\n"
+        "4. ## Criterios de Calidad, Testing y Seguridad\n"
+        "5. ## Resumen Operativo para Asistentes de IA\n"
+        "Devuelve únicamente el contenido Markdown sin bloques de código ```markdown envolventes."
+    )
+
+    prompt_content = f"### Directrices de Contexto:\n{context_text}\n\n"
+    if current_plan:
+        prompt_content += f"### Versión previa del Plan de Contexto:\n{current_plan}\n\n"
+    if feedback:
+        prompt_content += f"### Feedback / Instrucciones de Modificación del Validador:\n{feedback}\n\n"
+
+    prompt_content += "Genera el Plan de Contexto Técnico optimizado siguiendo la estructura requerida."
+
+    if not key:
+        # Mock mode for testing / sandbox environments without Gemini API key
+        return (
+            "# Plan de Contexto Técnico (Simulado)\n\n"
+            "## 1. Objetivo y Alcance\n"
+            "Contexto de desarrollo base configurado para estandarizar las directrices del proyecto.\n\n"
+            "## 2. Convenciones de Arquitectura y Patrones Recomendados\n"
+            f"- Directrices procesadas: {len(context_text)} caracteres analizados.\n"
+            "- Aplicar arquitectura modular, tipado estricto y separación limpia de capas.\n\n"
+            "## 3. Restricciones Técnicas y Buenas Prácticas\n"
+            "- Mantener principios SOLID y validar entradas de usuario.\n\n"
+            "## 4. Criterios de Calidad, Testing y Seguridad\n"
+            "- Cobertura de pruebas unitarias requerida para nuevos módulos.\n\n"
+            "## 5. Resumen Operativo para Asistentes de IA\n"
+            f"> Reglas base: {context_text[:120]}...\n"
+        )
+
+    endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{chosen_model}:generateContent?key={key}"
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": system_instruction},
+                    {"text": prompt_content}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.3
+        }
+    }
+
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        response = await client.post(endpoint, json=payload)
+        if response.status_code != 200:
+            raise RuntimeError(f"Gemini API error ({response.status_code}): {response.text}")
+        data = response.json()
+        candidates = data.get("candidates", [])
+        if not candidates:
+            raise RuntimeError("No candidates returned by Gemini")
+        plan_text = candidates[0]["content"]["parts"][0]["text"].strip()
+        return plan_text
+

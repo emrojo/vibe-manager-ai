@@ -4,7 +4,21 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
-import { apiRequest, Project, PromptTask, RepoTargetOption, UserQuotaStatus, UserContext, getUserQuota, getUserContexts, deleteUserContext } from "@/lib/api";
+import { useI18n } from "@/lib/i18n-context";
+import { 
+  apiRequest, 
+  Project, 
+  PromptTask, 
+  RepoTargetOption, 
+  UserQuotaStatus, 
+  UserContext, 
+  getUserQuota, 
+  getAcceptedUserContexts,
+  ActiveTemporalTask,
+  getActiveTemporalTasks,
+  estimateContextTokens,
+  ContextEstimateResponse
+} from "@/lib/api";
 import { 
   Send, 
   FolderGit2, 
@@ -28,6 +42,7 @@ import {
   Coins,
   Database,
   Layers,
+  Boxes,
   Cpu,
   History,
   Trash2,
@@ -36,10 +51,15 @@ import {
 } from "lucide-react";
 import LiveConsoleModal from "@/components/LiveConsoleModal";
 import UserPlanModal from "@/components/UserPlanModal";
+import WorkflowGuide from "@/components/WorkflowGuide";
 
 export default function DashboardPage() {
   const router = useRouter();
   const { user, loading: authLoading, refreshUser } = useAuth();
+  const { t } = useI18n();
+
+  const isValidator = user?.role === "admin" || user?.role === "validator" || (user?.validated_repos_count ?? 0) > 0 || Boolean(user?.is_project_validator);
+  const [pipelineFilter, setPipelineFilter] = useState<string>("ALL");
 
   const [targets, setTargets] = useState<RepoTargetOption[]>([]);
   const [selectedTargetKey, setSelectedTargetKey] = useState<string>("");
@@ -57,13 +77,14 @@ export default function DashboardPage() {
   const [quota, setQuota] = useState<UserQuotaStatus | null>(null);
   const [contexts, setContexts] = useState<UserContext[]>([]);
   const [showQuotaLogsModal, setShowQuotaLogsModal] = useState(false);
-  const [contextMode, setContextMode] = useState<"none" | "existing" | "new">("none");
+  const [contextMode, setContextMode] = useState<"none" | "existing">("none");
   const [selectedContextId, setSelectedContextId] = useState<number | null>(null);
-  const [newContextIdentifier, setNewContextIdentifier] = useState("");
-  const [newContextName, setNewContextName] = useState("");
-  const [newContextDescription, setNewContextDescription] = useState("");
-  const [newContextText, setNewContextText] = useState("");
-  const [deletingContextId, setDeletingContextId] = useState<number | null>(null);
+
+  // Temporal Contexts & Live Estimation Breakdown
+  const [activeTemporalTasks, setActiveTemporalTasks] = useState<ActiveTemporalTask[]>([]);
+  const [selectedTemporalTaskId, setSelectedTemporalTaskId] = useState<number | null>(null);
+  const [chainTemporalContext, setChainTemporalContext] = useState<boolean>(false);
+  const [liveEstimate, setLiveEstimate] = useState<ContextEstimateResponse | null>(null);
 
   // Modal for registering as validator for a repo
   const [showValidatorModal, setShowValidatorModal] = useState(false);
@@ -116,10 +137,19 @@ export default function DashboardPage() {
 
   const loadContexts = async () => {
     try {
-      const data = await getUserContexts();
+      const data = await getAcceptedUserContexts();
       setContexts(data);
     } catch (err: any) {
-      console.error("Error cargando contextos:", err);
+      console.error("Error cargando contextos aceptados:", err);
+    }
+  };
+
+  const loadTemporalTasks = async () => {
+    try {
+      const data = await getActiveTemporalTasks();
+      setActiveTemporalTasks(data);
+    } catch (err: any) {
+      console.error("Error cargando tareas temporales activas:", err);
     }
   };
 
@@ -127,7 +157,7 @@ export default function DashboardPage() {
     if (!user) return;
     setRefreshing(true);
     try {
-      await Promise.all([loadTargets(), loadPrompts(), loadQuota(), loadContexts()]);
+      await Promise.all([loadTargets(), loadPrompts(), loadQuota(), loadContexts(), loadTemporalTasks()]);
     } catch (err: any) {
       console.error("Error cargando datos:", err);
     } finally {
@@ -158,21 +188,27 @@ export default function DashboardPage() {
     return () => clearInterval(timer);
   }, []);
 
-  const handleDeleteContext = async (id: number) => {
-    if (!confirm("¿Deseas eliminar este contexto de trabajo personal?")) return;
-    setDeletingContextId(id);
-    try {
-      await deleteUserContext(id);
-      if (selectedContextId === id) {
-        setSelectedContextId(null);
+  // Debounced token estimation calculation with Gemini Context Caching
+  useEffect(() => {
+    const handler = setTimeout(async () => {
+      if (!promptText.trim() && contextMode === "none" && (!chainTemporalContext || !selectedTemporalTaskId)) {
+        setLiveEstimate(null);
+        return;
       }
-      await loadContexts();
-    } catch (err: any) {
-      alert(err.message || "Error eliminando contexto");
-    } finally {
-      setDeletingContextId(null);
-    }
-  };
+      try {
+        const res = await estimateContextTokens({
+          prompt: promptText,
+          context_id: contextMode === "existing" ? selectedContextId : null,
+          temporal_task_id: chainTemporalContext ? selectedTemporalTaskId : null,
+        });
+        setLiveEstimate(res);
+      } catch {
+        // keep fallback
+      }
+    }, 250);
+
+    return () => clearTimeout(handler);
+  }, [promptText, contextMode, selectedContextId, chainTemporalContext, selectedTemporalTaskId]);
 
   function formatTimeRemaining(seconds: number): string {
     if (seconds <= 0) return "Reiniciando...";
@@ -186,17 +222,14 @@ export default function DashboardPage() {
 
   // Token calculations
   const promptChars = promptText.length;
-  const promptTokens = promptChars > 0 ? Math.max(1, Math.ceil(promptChars / 3.8)) : 0;
+  const promptTokens = liveEstimate ? liveEstimate.prompt_tokens_estimated : (promptChars > 0 ? Math.max(1, Math.ceil(promptChars / 3.8)) : 0);
 
   const activeContext = contexts.find((c) => c.id === selectedContextId);
-  const contextChars = contextMode === "existing" && activeContext 
-    ? activeContext.character_count 
-    : (contextMode === "new" ? newContextText.length : 0);
-  const contextTokens = contextMode === "existing" && activeContext 
-    ? activeContext.estimated_tokens 
-    : (contextMode === "new" && newContextText.length > 0 ? Math.max(1, Math.ceil(newContextText.length / 3.8)) : 0);
+  const contextTokens = liveEstimate ? liveEstimate.context_tokens_estimated : (contextMode === "existing" && activeContext ? activeContext.estimated_tokens : 0);
+  const temporalTokens = liveEstimate?.temporal_tokens_estimated ?? 0;
+  const cachedDiscountTokens = liveEstimate?.cached_tokens_estimated ?? 0;
 
-  const totalEstimatedTokens = promptTokens + contextTokens;
+  const totalEstimatedTokens = liveEstimate ? liveEstimate.total_tokens_estimated : (promptTokens + contextTokens + temporalTokens);
   const willExceedQuota = quota ? (quota.tokens_remaining < totalEstimatedTokens) : false;
 
   const handleSubmitPrompt = async (e: React.FormEvent) => {
@@ -209,15 +242,7 @@ export default function DashboardPage() {
     if (contextMode === "existing" && !selectedContextId) {
       setMessage({
         type: "error",
-        text: "Has seleccionado 'Contexto guardado', pero no has seleccionado ninguno de la lista.",
-      });
-      return;
-    }
-
-    if (contextMode === "new" && (!newContextIdentifier.trim() || !newContextText.trim())) {
-      setMessage({
-        type: "error",
-        text: "Por favor proporciona un identificador y el contenido para el nuevo contexto.",
+        text: "Has seleccionado 'Usar contexto aceptado', pero no has seleccionado ninguno de la lista.",
       });
       return;
     }
@@ -233,10 +258,10 @@ export default function DashboardPage() {
 
     if (contextMode === "existing" && selectedContextId) {
       bodyPayload.context_id = selectedContextId;
-    } else if (contextMode === "new") {
-      bodyPayload.new_context_identifier = newContextIdentifier.trim();
-      bodyPayload.new_context_name = newContextName.trim() || newContextIdentifier.trim();
-      bodyPayload.new_context_text = newContextText.trim();
+    }
+
+    if (chainTemporalContext && selectedTemporalTaskId) {
+      bodyPayload.temporal_task_id = selectedTemporalTaskId;
     }
 
     try {
@@ -247,17 +272,12 @@ export default function DashboardPage() {
 
       setMessage({
         type: "success",
-        text: `¡Prompt enviado con éxito! Asignado al validador ${selectedTarget.validator_name} para su revisión.`,
+        text: t("dashboard.prompt_sent_success", { validator: selectedTarget.validator_name }),
       });
       setPromptText("");
-      if (contextMode === "new") {
-        setNewContextIdentifier("");
-        setNewContextName("");
-        setNewContextDescription("");
-        setNewContextText("");
-        setContextMode("none");
-      }
-      await Promise.all([loadPrompts(), loadQuota(), loadContexts()]);
+      setChainTemporalContext(false);
+      setSelectedTemporalTaskId(null);
+      await Promise.all([loadPrompts(), loadQuota(), loadContexts(), loadTemporalTasks()]);
     } catch (err: any) {
       setMessage({
         type: "error",
@@ -312,6 +332,42 @@ export default function DashboardPage() {
     } finally {
       setCancellingId(null);
     }
+  };
+
+  const getPipelineStageBadge = (task: PromptTask) => {
+    if (task.status === "PENDING") {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30">
+          <Clock className="w-2.5 h-2.5" />
+          {t("workflow.badge_stage_prompt", "Paso 1: Prompt")}
+        </span>
+      );
+    }
+    if (task.status === "APPROVED" || task.status === "PLAN_PENDING" || task.status === "PLAN_APPROVED" || Boolean(task.plan_content)) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/30">
+          <FileCode2 className="w-2.5 h-2.5" />
+          {t("workflow.badge_stage_plan", "Paso 2: Plan")}
+        </span>
+      );
+    }
+    if (task.status === "RUNNING") {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+          <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+          {t("workflow.badge_stage_running", "Paso 3: Docker")}
+        </span>
+      );
+    }
+    if (task.status === "COMPLETED" || Boolean(task.pr_url)) {
+      return (
+        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+          <GitPullRequest className="w-2.5 h-2.5" />
+          {t("workflow.badge_stage_pr", "Paso Final: PR Creado")}
+        </span>
+      );
+    }
+    return null;
   };
 
   const getStatusBadge = (status: PromptTask["status"]) => {
@@ -384,10 +440,10 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white flex items-center gap-3">
             <Sparkles className="w-7 h-7 text-indigo-400" />
-            Workspace de Prompts
+            {t("dashboard.title")}
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Escribe tus instrucciones de modificación sobre el proyecto seleccionado. Los cambios serán revisados por los validadores y ejecutados en un contenedor aislado de Docker para abrir un Pull Request en GitHub.
+            {t("dashboard.subtitle")}
           </p>
         </div>
 
@@ -396,7 +452,7 @@ export default function DashboardPage() {
           className="self-start sm:self-center px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600/20 to-teal-600/20 border border-emerald-500/30 hover:border-emerald-500/50 text-emerald-300 text-xs font-semibold flex items-center gap-2 transition-all shadow-md shrink-0"
         >
           <GitPullRequest className="w-4 h-4 text-emerald-400" />
-          <span>Ver Mis Pull Requests</span>
+          <span>{t("dashboard.view_prs")}</span>
         </Link>
       </div>
 
@@ -410,14 +466,14 @@ export default function DashboardPage() {
               </div>
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-sm font-semibold text-white">Cuota de Tokens (Ventana de {quota.quota_window_hours} Horas)</h3>
+                  <h3 className="text-sm font-semibold text-white">{t("dashboard.quota_title", { hours: quota.quota_window_hours })}</h3>
                   {quota.is_exceeded ? (
                     <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30">
-                      Límite Alcanzado (429)
+                      {t("dashboard.limit_reached")}
                     </span>
                   ) : (
                     <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                      Cuota Disponible
+                      {t("dashboard.quota_available")}
                     </span>
                   )}
                 </div>
@@ -426,10 +482,10 @@ export default function DashboardPage() {
                     {quota.tokens_remaining.toLocaleString()}
                   </span>
                   <span className="text-xs text-slate-400 font-mono">
-                    tokens restantes de {quota.token_quota_limit.toLocaleString()}
+                    {t("dashboard.tokens_remaining", { total: quota.token_quota_limit.toLocaleString() })}
                   </span>
                   <span className="text-xs text-slate-500">
-                    ({quota.percentage_used}% consumido)
+                    ({quota.percentage_used}% {t("dashboard.consumed")})
                   </span>
                 </div>
               </div>
@@ -438,7 +494,7 @@ export default function DashboardPage() {
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 lg:self-center">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300">
                 <Clock className="w-4 h-4 text-indigo-400" />
-                <span>Reinicio en:</span>
+                <span>{t("dashboard.reset_in")}</span>
                 <span className="font-mono font-semibold text-indigo-300">{formatTimeRemaining(quota.seconds_until_reset)}</span>
               </div>
               <button
@@ -447,7 +503,7 @@ export default function DashboardPage() {
                 className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium flex items-center justify-center gap-2 transition-all shadow-sm"
               >
                 <History className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Historial de Costos</span>
+                <span>{t("dashboard.cost_history")}</span>
               </button>
             </div>
           </div>
@@ -469,6 +525,22 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Interactive Workflow Guide Stepper */}
+      <WorkflowGuide
+        flowType="prompts"
+        isValidator={isValidator}
+        activeFilterStep={pipelineFilter}
+        onFilterStep={(stepKey) => setPipelineFilter(stepKey)}
+        counts={{
+          pendingPrompts: myPrompts.filter((p) => p.status === "PENDING").length,
+          pendingPlans: myPrompts.filter(
+            (p) => p.status === "PLAN_PENDING" || p.status === "PLAN_APPROVED" || Boolean(p.plan_content)
+          ).length,
+          running: myPrompts.filter((p) => p.status === "RUNNING").length,
+          completedPRs: myPrompts.filter((p) => p.status === "COMPLETED" || Boolean(p.pr_url)).length,
+        }}
+      />
 
       {/* Submission Card */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
@@ -496,7 +568,7 @@ export default function DashboardPage() {
           <div>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                1. Selecciona el Repositorio Objetivo y su Validador
+                {t("dashboard.select_repo_validator")}
               </label>
               <button
                 type="button"
@@ -504,18 +576,18 @@ export default function DashboardPage() {
                 className="self-start sm:self-auto text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 font-medium transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 px-2.5 py-1 rounded-lg border border-indigo-500/20"
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-                <span>+ Darme de alta como Validador de un Repositorio</span>
+                <span>{t("dashboard.become_validator")}</span>
               </button>
             </div>
             {targets.length === 0 ? (
               <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <span>No hay repositorios con validador disponibles. Puedes darte de alta como validador de tu propio repositorio de GitHub.</span>
+                <span>{t("dashboard.no_repos_available")}</span>
                 <button
                   type="button"
                   onClick={() => setShowValidatorModal(true)}
                   className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-all shrink-0"
                 >
-                  Registrar mi Repositorio
+                  {t("dashboard.register_repo")}
                 </button>
               </div>
             ) : (
@@ -545,26 +617,30 @@ export default function DashboardPage() {
               if (!currentT) return null;
               return (
                 <div className="mt-2 text-xs text-slate-400 flex flex-wrap items-center gap-x-4 gap-y-1">
-                  <span className="text-indigo-400 font-mono">Rama: {currentT.default_branch}</span>
-                  <span className="text-amber-400">Validador asignado: {currentT.validator_name}</span>
+                  <span className="text-indigo-400 font-mono">{t("dashboard.branch_label")} {currentT.default_branch}</span>
+                  <span className="text-amber-400">{t("dashboard.assigned_validator")} {currentT.validator_name}</span>
                   <span className="text-slate-500 font-mono">{currentT.repo_url}</span>
                 </div>
               );
             })()}
           </div>
 
-          {/* Context Selector (Personal Context with Gemini Context Caching) */}
+          {/* Context Selector (Only Accepted Contexts) */}
           <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Database className="w-4 h-4 text-indigo-400" />
                 <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                  2. Contexto Personal de Usuario (Context Caching)
+                  {t("dashboard.dev_context")}
                 </label>
               </div>
-              <span className="text-[11px] text-slate-500">
-                Privado y exclusivo para tu usuario
-              </span>
+              <Link
+                href="/contexts"
+                className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium transition-colors"
+              >
+                <Boxes className="w-3.5 h-3.5" />
+                <span>{t("dashboard.manage_contexts")}</span>
+              </Link>
             </div>
 
             {/* Context Mode Tabs */}
@@ -578,7 +654,7 @@ export default function DashboardPage() {
                     : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
                 }`}
               >
-                Sin contexto
+                {t("dashboard.no_context")}
               </button>
               <button
                 type="button"
@@ -595,19 +671,7 @@ export default function DashboardPage() {
                 }`}
               >
                 <Layers className="w-3.5 h-3.5" />
-                <span>Contexto guardado ({contexts.length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setContextMode("new")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
-                  contextMode === "new"
-                    ? "bg-indigo-600 text-white shadow"
-                    : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
-                }`}
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Crear nuevo contexto</span>
+                <span>{t("dashboard.use_accepted_context", { count: contexts.length })}</span>
               </button>
             </div>
 
@@ -615,15 +679,19 @@ export default function DashboardPage() {
             {contextMode === "existing" && (
               <div className="space-y-3 pt-2">
                 {contexts.length === 0 ? (
-                  <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-400 flex items-center justify-between">
-                    <span>Aún no tienes ningún contexto personal guardado.</span>
-                    <button
-                      type="button"
-                      onClick={() => setContextMode("new")}
-                      className="text-indigo-400 hover:underline font-medium"
+                  <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-200/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-amber-300">{t("dashboard.no_accepted_contexts")}</p>
+                      <p className="text-[11px] text-amber-200/70 mt-0.5">
+                        {t("dashboard.no_accepted_contexts_desc")}
+                      </p>
+                    </div>
+                    <Link
+                      href="/contexts"
+                      className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/30 text-xs font-semibold whitespace-nowrap transition-colors"
                     >
-                      Crear el primero
-                    </button>
+                      {t("dashboard.go_to_contexts")}
+                    </Link>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -634,7 +702,7 @@ export default function DashboardPage() {
                     >
                       {contexts.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.name} ({c.identifier}) — ~{c.estimated_tokens} tokens
+                          {c.name} ({c.identifier}) — v{c.version || 1} • ~{c.estimated_tokens} tokens
                         </option>
                       ))}
                     </select>
@@ -642,38 +710,34 @@ export default function DashboardPage() {
                     {activeContext && (
                       <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex items-start justify-between gap-3 text-xs">
                         <div className="space-y-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-semibold text-white">{activeContext.name}</span>
                             <span className="text-[11px] font-mono text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
                               {activeContext.identifier}
                             </span>
+                            <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                              {t("dashboard.accepted_badge", { version: activeContext.version || 1 })}
+                            </span>
                             {activeContext.gemini_cache_name ? (
-                              <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
-                                Gemini Cache Activo
+                              <span className="text-[10px] text-teal-400 bg-teal-500/10 px-1.5 py-0.5 rounded border border-teal-500/20">
+                                {t("dashboard.cache_active")}
                               </span>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
-                                Inyección Estructurada
-                              </span>
-                            )}
+                            ) : null}
                           </div>
                           {activeContext.description && (
                             <p className="text-slate-400 text-[11px]">{activeContext.description}</p>
                           )}
                           <div className="text-[11px] text-slate-500 font-mono">
-                            Tamaño: {activeContext.character_count.toLocaleString()} caracteres (~{activeContext.estimated_tokens.toLocaleString()} tokens estimados)
+                            {t("dashboard.size_chars", { chars: activeContext.character_count.toLocaleString(), tokens: activeContext.estimated_tokens.toLocaleString() })}
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteContext(activeContext.id)}
-                          disabled={deletingContextId === activeContext.id}
-                          className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                          title="Eliminar este contexto"
+                        <Link
+                          href="/contexts"
+                          className="px-2.5 py-1 text-xs rounded-lg text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 transition-colors whitespace-nowrap"
                         >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                          {t("dashboard.view_iterate")}
+                        </Link>
                       </div>
                     )}
                   </div>
@@ -681,64 +745,64 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* Mode: New Context */}
-            {contextMode === "new" && (
-              <div className="space-y-3 pt-2">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                      Identificador de Contexto (Slug) *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="ej: stack-frontend-react"
-                      value={newContextIdentifier}
-                      onChange={(e) => setNewContextIdentifier(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                      Nombre Descriptivo *
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="ej: Convenciones y Arquitectura React"
-                      value={newContextName}
-                      onChange={(e) => setNewContextName(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
+            {/* 2.1 Contexto Temporal de Tarea Activa (Opcional) */}
+            <div className="pt-3 border-t border-slate-800/80">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={chainTemporalContext}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setChainTemporalContext(checked);
+                    if (checked && !selectedTemporalTaskId && activeTemporalTasks.length > 0) {
+                      setSelectedTemporalTaskId(activeTemporalTasks[0].id);
+                    }
+                  }}
+                  className="rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-slate-950 w-4 h-4 cursor-pointer"
+                />
+                <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{t("dashboard.chain_temporal_checkbox", { count: activeTemporalTasks.length })}</span>
+                </span>
+              </label>
 
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                    Contenido del Contexto a Guardar y Reutilizar *
-                  </label>
-                  <textarea
-                    rows={4}
-                    placeholder="Escribe aquí las directivas técnicas, arquitectura, esquema de BD o convenciones que Gemini debe recordar para este contexto..."
-                    value={newContextText}
-                    onChange={(e) => setNewContextText(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
-                  />
-                  <div className="text-[11px] text-slate-500 mt-1 flex justify-between">
-                    <span>Tamaño: {newContextText.length} caracteres (~{Math.ceil(newContextText.length / 3.8)} tokens estimados)</span>
-                    <span>Se guardará en tu cuenta para reutilizar en futuros prompts</span>
-                  </div>
+              {chainTemporalContext && (
+                <div className="mt-2.5 pl-6 space-y-2">
+                  {activeTemporalTasks.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 italic bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
+                      {t("dashboard.no_active_temporal")}
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <select
+                        value={selectedTemporalTaskId || ""}
+                        onChange={(e) => setSelectedTemporalTaskId(Number(e.target.value))}
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500 font-mono"
+                      >
+                        {activeTemporalTasks.map((tItem) => (
+                          <option key={tItem.id} value={tItem.id}>
+                            Tarea #{tItem.id} — {tItem.original_prompt.slice(0, 45)}... ({tItem.status}) • ~{tItem.character_count} car. (~{tItem.tokens_estimated} tokens)
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-amber-300/80 leading-relaxed">
+                        {t("dashboard.temporal_helper_tip")}
+                      </p>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* Prompt Textarea */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                3. Instrucciones para la IA (Prompt de Modificación)
+                {t("dashboard.instructions_title")}
               </label>
               <span className="text-xs text-slate-400">
-                Puedes enviar múltiples prompts secuenciales
+                {t("dashboard.multiple_prompts_tip")}
               </span>
             </div>
             <textarea
@@ -746,24 +810,62 @@ export default function DashboardPage() {
               rows={5}
               value={promptText}
               onChange={(e) => setPromptText(e.target.value)}
-              placeholder="Ejemplo: Añade una nueva sección de preguntas frecuentes (FAQ) en la página principal con 4 preguntas expandibles tipo acordeón. Utiliza Tailwind CSS y animación suave."
+              placeholder={t("dashboard.instructions_placeholder")}
               className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono"
             />
           </div>
 
-          {/* Live Token Estimation Box */}
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
+          {/* Live Granular Token Estimation Box */}
+          <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2 text-slate-300">
                 <Cpu className="w-4 h-4 text-indigo-400" />
-                <span className="font-semibold">Estimación de Tokens para esta petición:</span>
+                <span className="font-semibold">{t("dashboard.cost_breakdown_title")}</span>
               </div>
-              <div className="flex items-center gap-4 text-slate-400 font-mono text-[11px]">
-                <span>Prompt: ~{promptTokens} tokens</span>
-                {contextTokens > 0 && <span>Contexto: ~{contextTokens} tokens</span>}
-                <span className="font-bold text-white bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">
-                  Total: ~{totalEstimatedTokens} tokens
+              <span className="text-[11px] text-slate-500 font-mono">
+                {t("dashboard.realtime_cache_calc")}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                <span className="block text-[10px] text-slate-400 uppercase font-semibold">{t("dashboard.prompt_tokens")}</span>
+                <span className="text-sm font-mono font-bold text-slate-200">
+                  ~{promptTokens}
                 </span>
+                <span className="block text-[9px] text-slate-500 font-mono">{t("dashboard.tokens_unit")}</span>
+              </div>
+
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                <span className="block text-[10px] text-slate-400 uppercase font-semibold">{t("dashboard.fixed_ctx_tokens")}</span>
+                <span className="text-sm font-mono font-bold text-slate-200">
+                  ~{contextTokens}
+                </span>
+                <span className="block text-[9px] text-slate-500 font-mono">{t("dashboard.tokens_unit")}</span>
+              </div>
+
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                <span className="block text-[10px] text-slate-400 uppercase font-semibold">{t("dashboard.temporal_ctx_tokens")}</span>
+                <span className="text-sm font-mono font-bold text-amber-300">
+                  ~{temporalTokens}
+                </span>
+                <span className="block text-[9px] text-slate-500 font-mono">{t("dashboard.tokens_unit")}</span>
+              </div>
+
+              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800">
+                <span className="block text-[10px] text-slate-400 uppercase font-semibold">{t("dashboard.cache_discount")}</span>
+                <span className="text-sm font-mono font-bold text-emerald-400">
+                  -{cachedDiscountTokens}
+                </span>
+                <span className="block text-[9px] text-slate-500 font-mono">{t("dashboard.tokens_unit")}</span>
+              </div>
+
+              <div className="p-2.5 rounded-lg bg-indigo-950/40 border border-indigo-500/30 col-span-2 sm:col-span-1">
+                <span className="block text-[10px] text-indigo-300 uppercase font-bold">{t("dashboard.total_est")}</span>
+                <span className="text-sm font-mono font-bold text-white">
+                  ~{totalEstimatedTokens}
+                </span>
+                <span className="block text-[9px] text-indigo-300/70 font-mono">{t("dashboard.tokens_unit")}</span>
               </div>
             </div>
 
@@ -771,7 +873,7 @@ export default function DashboardPage() {
               <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
                 <span>
-                  Atención: Esta petición (~{totalEstimatedTokens} tokens) podría exceder tu cuota restante ({quota?.tokens_remaining.toLocaleString()} tokens) para la ventana actual de 5 horas.
+                  {t("dashboard.quota_warning", { tokens: (liveEstimate ? liveEstimate.total_tokens_estimated : totalEstimatedTokens).toLocaleString(), remaining: quota?.tokens_remaining.toLocaleString() || 0 })}
                 </span>
               </div>
             )}
@@ -787,12 +889,12 @@ export default function DashboardPage() {
               {submitting ? (
                 <>
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Enviando...</span>
+                  <span>{t("common.sending")}</span>
                 </>
               ) : (
                 <>
                   <Send className="w-4 h-4" />
-                  <span>Enviar a Revisión</span>
+                  <span>{t("dashboard.send_review")}</span>
                 </>
               )}
             </button>
@@ -806,33 +908,88 @@ export default function DashboardPage() {
           <div>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
               <Clock className="w-5 h-5 text-indigo-400" />
-              Historial de mis Prompts
+              {t("dashboard.history_title")}
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Estado en tiempo real de las solicitudes enviadas
+              {t("dashboard.history_subtitle")}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+            <div className="flex flex-wrap items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
               <button
                 type="button"
-                onClick={() => setFilterPlanOnly(false)}
+                onClick={() => {
+                  setPipelineFilter("ALL");
+                  setFilterPlanOnly(false);
+                }}
                 className={`px-3 py-1 rounded-lg font-medium transition-all ${
-                  !filterPlanOnly ? "bg-indigo-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                  pipelineFilter === "ALL" && !filterPlanOnly
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-white"
                 }`}
               >
-                Todos ({myPrompts.length})
+                {t("workflow.filter_all", "Todas las etapas")} ({myPrompts.length})
               </button>
               <button
                 type="button"
-                onClick={() => setFilterPlanOnly(true)}
+                onClick={() => {
+                  setPipelineFilter("PENDING");
+                  setFilterPlanOnly(false);
+                }}
                 className={`px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
-                  filterPlanOnly ? "bg-purple-600 text-white shadow-sm" : "text-slate-400 hover:text-white"
+                  pipelineFilter === "PENDING"
+                    ? "bg-amber-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>{t("workflow.filter_pending_prompts", "1. En Revisión de Prompt")} ({myPrompts.filter((p) => p.status === "PENDING").length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPipelineFilter("plan");
+                  setFilterPlanOnly(true);
+                }}
+                className={`px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+                  pipelineFilter === "plan" || filterPlanOnly
+                    ? "bg-purple-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-white"
                 }`}
               >
                 <FileCode2 className="w-3.5 h-3.5" />
-                <span>Con Plan ({myPrompts.filter(t => t.plan_content || t.status === "PLAN_PENDING" || t.status === "PLAN_APPROVED").length})</span>
+                <span>{t("workflow.filter_plans", "2. Planes de Trabajo")} ({myPrompts.filter((p) => p.plan_content || p.status === "PLAN_PENDING" || p.status === "PLAN_APPROVED").length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPipelineFilter("running");
+                  setFilterPlanOnly(false);
+                }}
+                className={`px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+                  pipelineFilter === "running"
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>{t("workflow.filter_running", "3. En Ejecución (Docker)")} ({myPrompts.filter((p) => p.status === "RUNNING").length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPipelineFilter("prs");
+                  setFilterPlanOnly(false);
+                }}
+                className={`px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+                  pipelineFilter === "prs"
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <GitPullRequest className="w-3.5 h-3.5" />
+                <span>{t("workflow.filter_completed_prs", "Pull Requests Listos")} ({myPrompts.filter((p) => p.status === "COMPLETED" || Boolean(p.pr_url)).length})</span>
               </button>
             </div>
 
@@ -842,7 +999,7 @@ export default function DashboardPage() {
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300 transition-all"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
-              <span>Actualizar</span>
+              <span>{t("common.update")}</span>
             </button>
           </div>
         </div>
@@ -850,32 +1007,53 @@ export default function DashboardPage() {
         {myPrompts.length === 0 ? (
           <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl">
             <Sparkles className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-sm text-slate-400 font-medium">Aún no has enviado ningún prompt.</p>
-            <p className="text-xs text-slate-500 mt-1">Escribe tu primera solicitud en el formulario de arriba.</p>
+            <p className="text-sm text-slate-400 font-medium">{t("dashboard.no_prompts")}</p>
+            <p className="text-xs text-slate-500 mt-1">{t("dashboard.no_prompts_desc")}</p>
           </div>
-        ) : filterPlanOnly && myPrompts.filter(t => t.plan_content || t.status === "PLAN_PENDING" || t.status === "PLAN_APPROVED").length === 0 ? (
-          <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl">
-            <FileCode2 className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-sm text-slate-400 font-medium">Aún no tienes ningún prompt con plan técnico generado.</p>
-            <p className="text-xs text-slate-500 mt-1">Cuando los validadores aprueben tus prompts, Gemini formulará el plan técnico y aparecerá aquí.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase bg-slate-950/60 text-slate-400 border-b border-slate-800">
-                <tr>
-                  <th className="py-3 px-4">ID</th>
-                  <th className="py-3 px-4">Proyecto</th>
-                  <th className="py-3 px-4">Prompt</th>
-                  <th className="py-3 px-4">Estado</th>
-                  <th className="py-3 px-4">Resultado / PR</th>
-                  <th className="py-3 px-4 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {myPrompts
-                  .filter((t) => !filterPlanOnly || (t.plan_content || t.status === "PLAN_PENDING" || t.status === "PLAN_APPROVED"))
-                  .map((task) => (
+        ) : (() => {
+          const filteredPrompts = myPrompts.filter((task) => {
+            if (pipelineFilter === "PENDING" || pipelineFilter === "validate_prompt") return task.status === "PENDING";
+            if (pipelineFilter === "plan" || pipelineFilter === "validate_plan") {
+              return (
+                task.status === "PLAN_PENDING" ||
+                task.status === "PLAN_APPROVED" ||
+                task.status === "APPROVED" ||
+                Boolean(task.plan_content)
+              );
+            }
+            if (pipelineFilter === "running") return task.status === "RUNNING";
+            if (pipelineFilter === "prs") return task.status === "COMPLETED" || Boolean(task.pr_url);
+            if (filterPlanOnly) {
+              return task.plan_content || task.status === "PLAN_PENDING" || task.status === "PLAN_APPROVED";
+            }
+            return true;
+          });
+
+          if (filteredPrompts.length === 0) {
+            return (
+              <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl">
+                <FileCode2 className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                <p className="text-sm text-slate-400 font-medium">No hay tareas en esta etapa del flujo.</p>
+                <p className="text-xs text-slate-500 mt-1">Selecciona &quot;Todas las etapas&quot; para ver la totalidad de tus prompts.</p>
+              </div>
+            );
+          }
+
+          return (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs uppercase bg-slate-950/60 text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th className="py-3 px-4">ID</th>
+                    <th className="py-3 px-4">{t("common.project")}</th>
+                    <th className="py-3 px-4">Prompt</th>
+                    <th className="py-3 px-4">{t("common.status")}</th>
+                    <th className="py-3 px-4">PR</th>
+                    <th className="py-3 px-4 text-right">{t("common.actions")}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {filteredPrompts.map((task) => (
                   <tr key={task.id} className="hover:bg-slate-800/30 transition-colors">
                     <td className="py-3.5 px-4 font-mono text-xs text-slate-400">
                       #{task.id}
@@ -890,7 +1068,7 @@ export default function DashboardPage() {
                       <div className="flex flex-wrap items-center gap-1.5 mt-1">
                         {task.edited_prompt && (
                           <span className="text-[10px] text-indigo-400">
-                            (Ajustado por validador)
+                            {t("dashboard.adjusted_by_validator")}
                           </span>
                         )}
                         {task.context_name && (
@@ -899,38 +1077,68 @@ export default function DashboardPage() {
                             {task.context_name}
                           </span>
                         )}
+                        {task.temporal_context_status && (
+                          <span
+                            className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                              task.temporal_context_status === "ACTIVE"
+                                ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                                : task.temporal_context_status === "MERGED"
+                                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                                : "bg-slate-800 text-slate-400 border-slate-700"
+                            }`}
+                            title={`Contexto Temporal: ${task.temporal_context_status}`}
+                          >
+                            <Clock className="w-2.5 h-2.5" />
+                            {task.temporal_context_status === "ACTIVE"
+                              ? t("dashboard.temporal_active")
+                              : task.temporal_context_status === "MERGED"
+                              ? t("dashboard.temporal_merged")
+                              : t("dashboard.temporal_discarded")}
+                          </span>
+                        )}
                         {task.tokens_used ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-mono text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20" title="Tokens consumidos en esta tarea">
+                          <span 
+                            className="inline-flex items-center gap-1 text-[10px] font-mono text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20" 
+                            title={`Tokens: ${task.tokens_used.toLocaleString()} (Fijo: ${task.tokens_fixed_context || 0}, Temporal: ${task.tokens_temporal_context || 0})`}
+                          >
                             <Coins className="w-2.5 h-2.5 text-indigo-400" />
                             {task.tokens_used.toLocaleString()} tokens
+                            {task.tokens_temporal_context ? (
+                              <span className="text-[9px] text-amber-300 ml-0.5 font-bold">
+                                (+{task.tokens_temporal_context} temp)
+                              </span>
+                            ) : null}
                           </span>
                         ) : null}
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
-                      {getStatusBadge(task.status)}
-                      {task.plan_content && (
-                        <div className="mt-1">
+                      <div className="flex flex-col gap-1 items-start">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {getPipelineStageBadge(task)}
+                          {getStatusBadge(task.status)}
+                        </div>
+                        {task.plan_content && (
                           <button
                             onClick={() => setSelectedPlanTask(task)}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[11px] font-semibold transition-all"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 text-purple-200 border border-purple-500/40 text-xs font-semibold shadow-sm transition-all mt-0.5"
                           >
-                            <FileCode2 className="w-3 h-3 text-purple-400" />
-                            <span>Ver Plan Técnico</span>
+                            <FileCode2 className="w-3.5 h-3.5 text-purple-300" />
+                            <span>{t("dashboard.view_plan")}</span>
                           </button>
-                        </div>
-                      )}
-                      {task.rejection_reason && (
-                        <p className="text-[11px] text-rose-400 mt-1 max-w-xs line-clamp-2">
-                          Motivo: {task.rejection_reason}
-                        </p>
-                      )}
-                      {task.status === "FAILED" && (
-                        <div className="mt-1 p-1.5 bg-rose-500/10 border border-rose-500/20 rounded-md text-[11px] text-rose-300 font-mono">
-                          <strong className="text-rose-400 block font-sans text-[10px] uppercase">Causa del error:</strong>
-                          <span className="line-clamp-2">{task.error_message || "Error en el contenedor del runner"}</span>
-                        </div>
-                      )}
+                        )}
+                        {task.rejection_reason && (
+                          <p className="text-[11px] text-rose-400 mt-0.5 max-w-xs line-clamp-2">
+                            {t("dashboard.rejection_reason_label")} {task.rejection_reason}
+                          </p>
+                        )}
+                        {task.status === "FAILED" && (
+                          <div className="mt-1 p-1.5 bg-rose-500/10 border border-rose-500/20 rounded-md text-[11px] text-rose-300 font-mono">
+                            <strong className="text-rose-400 block font-sans text-[10px] uppercase">{t("dashboard.error_cause_label")}</strong>
+                            <span className="line-clamp-2">{task.error_message || "Error en el contenedor del runner"}</span>
+                          </div>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3.5 px-4">
                       {task.pr_url ? (
@@ -955,10 +1163,10 @@ export default function DashboardPage() {
                             onClick={() => handleCancelTask(task.id)}
                             disabled={cancellingId === task.id}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-semibold transition-all disabled:opacity-50"
-                            title="Cancelar / Detener proceso"
+                            title={t("dashboard.cancel_prompt")}
                           >
                             <Square className={`w-3 h-3 fill-current ${cancellingId === task.id ? "animate-pulse" : ""}`} />
-                            <span>{cancellingId === task.id ? "Cancelando..." : "Cancelar"}</span>
+                            <span>{cancellingId === task.id ? t("dashboard.cancelling") : t("dashboard.cancel_prompt")}</span>
                           </button>
                         )}
 
@@ -967,7 +1175,7 @@ export default function DashboardPage() {
                           <button
                             onClick={() => setSelectedPlanTask(task)}
                             className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 text-xs font-semibold shadow-sm transition-all"
-                            title="Ver Plan Técnico de Implementación"
+                            title={t("dashboard.view_plan")}
                           >
                             <FileCode2 className="w-3.5 h-3.5 text-purple-400" />
                             <span>Plan</span>
@@ -983,7 +1191,7 @@ export default function DashboardPage() {
                                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-semibold shadow-sm transition-all"
                               >
                                 <Terminal className="w-3.5 h-3.5 animate-pulse" />
-                                <span>Consola en Vivo</span>
+                                <span>{t("dashboard.live_console")}</span>
                               </button>
                             ) : (task.execution_logs || task.status === "FAILED" || task.status === "STOPPED" || task.status === "COMPLETED") ? (
                               <button
@@ -991,7 +1199,7 @@ export default function DashboardPage() {
                                 className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition-colors"
                               >
                                 <Terminal className="w-3.5 h-3.5" />
-                                <span>Consola</span>
+                                <span>{t("dashboard.console")}</span>
                               </button>
                             ) : null}
                           </>
@@ -1003,7 +1211,8 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* User Plan Modal */}

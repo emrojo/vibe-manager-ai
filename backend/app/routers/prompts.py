@@ -69,6 +69,10 @@ def map_prompt_task(task: PromptTask) -> PromptTaskRead:
         context_id=task.context_id,
         context_name=context_name,
         tokens_used=task.tokens_used or 0,
+        tokens_fixed_context=task.tokens_fixed_context or 0,
+        tokens_temporal_context=task.tokens_temporal_context or 0,
+        temporal_context=task.temporal_context,
+        temporal_context_status=task.temporal_context_status or "ACTIVE",
         created_at=task.created_at,
         updated_at=task.updated_at
     )
@@ -140,7 +144,7 @@ async def submit_prompt(
             detail="El prompt no puede estar vacío"
         )
 
-    # 3. Resolve Personal Context (Privacy enforced: user_id == current_user.id)
+    # 3. Resolve Personal Context (Privacy and ACCEPTED status strictly enforced)
     selected_context = None
     if payload.context_id:
         ctx_res = await db.execute(
@@ -155,41 +159,44 @@ async def submit_prompt(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="El contexto seleccionado no existe o no tienes permiso para utilizarlo."
             )
-    elif payload.new_context_identifier and payload.new_context_text:
-        clean_ident = payload.new_context_identifier.strip().lower()
-        clean_name = payload.new_context_name.strip() if payload.new_context_name else clean_ident
-        char_cnt = len(payload.new_context_text)
-        tok_cnt = estimate_tokens(payload.new_context_text)
+        if selected_context.status != "ACCEPTED":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El contexto seleccionado '{selected_context.name}' no está disponible (estado actual: {selected_context.status}). Solo se pueden utilizar contextos completamente aceptados por el validador."
+            )
 
-        cache_name, expire_dt = await try_create_gemini_context_cache(
-            context_text=payload.new_context_text,
-            identifier=clean_ident,
-            api_key=settings.GEMINI_API_KEY,
-            model=settings.GEMINI_MODEL
+    # 4. Resolve optional Temporal Context from another active task
+    temporal_context_content = None
+    est_temp_tokens = 0
+    if payload.temporal_task_id:
+        t_res = await db.execute(
+            select(PromptTask).where(
+                PromptTask.id == payload.temporal_task_id,
+                PromptTask.user_id == current_user.id
+            )
         )
+        temporal_source_task = t_res.scalars().first()
+        if temporal_source_task:
+            temporal_context_content = temporal_source_task.temporal_context or (
+                f"### Contexto Temporal de Tarea #{temporal_source_task.id}\n"
+                f"- **Prompt**: {temporal_source_task.edited_prompt or temporal_source_task.original_prompt}\n"
+                f"{f'- **Plan en Curso**: {temporal_source_task.plan_content}' if temporal_source_task.plan_content else ''}"
+            )
+            est_temp_tokens = estimate_tokens(temporal_context_content)
 
-        selected_context = UserContext(
-            user_id=current_user.id,
-            identifier=clean_ident,
-            name=clean_name,
-            context_text=payload.new_context_text,
-            character_count=char_cnt,
-            estimated_tokens=tok_cnt,
-            gemini_cache_name=cache_name,
-            gemini_cache_expire_time=expire_dt
-        )
-        db.add(selected_context)
-        await db.flush()
-
-    # 4. Check if estimated total tokens fit in remaining quota
+    # 5. Check if estimated total tokens fit in remaining quota
     est_prompt_tokens = estimate_tokens(cleaned_prompt)
     est_ctx_tokens = selected_context.estimated_tokens if selected_context else 0
-    if used + est_prompt_tokens + est_ctx_tokens > limit:
+    total_estimated = est_prompt_tokens + est_ctx_tokens + est_temp_tokens
+    if used + total_estimated > limit:
         minutes_left = max(1, seconds_left // 60)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Esta petición excede los tokens restantes de tu cuota de 5 horas. Disponibles: {limit - used:,}, Requeridos: ~{est_prompt_tokens + est_ctx_tokens:,}. Se reiniciará en {minutes_left} minutos."
+            detail=f"Esta petición excede los tokens restantes de tu cuota de 5 horas. Disponibles: {limit - used:,}, Requeridos: ~{total_estimated:,} (Prompt: {est_prompt_tokens}, Fijo: {est_ctx_tokens}, Temporal: {est_temp_tokens}). Se reiniciará en {minutes_left} minutos."
         )
+
+    # Initialize task's own temporal context
+    initial_temporal_context = temporal_context_content if temporal_context_content else f"### Contexto Temporal Inicial\n- **Prompt**: {cleaned_prompt}"
 
     task = PromptTask(
         project_id=project.id,
@@ -198,7 +205,11 @@ async def submit_prompt(
         status="PENDING",
         repo_validator_id=repo_validator.id if repo_validator else None,
         assigned_validator_id=repo_validator.user_id if repo_validator else None,
-        context_id=selected_context.id if selected_context else None
+        context_id=selected_context.id if selected_context else None,
+        tokens_fixed_context=est_ctx_tokens,
+        tokens_temporal_context=est_temp_tokens,
+        temporal_context=initial_temporal_context,
+        temporal_context_status="ACTIVE"
     )
     db.add(task)
     await db.commit()
