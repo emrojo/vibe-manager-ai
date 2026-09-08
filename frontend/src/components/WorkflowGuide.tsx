@@ -16,7 +16,8 @@ import {
   ArrowRight,
   ShieldCheck,
   Cpu,
-  Bot
+  Bot,
+  ChevronRight
 } from "lucide-react";
 
 export interface WorkflowStep {
@@ -223,133 +224,143 @@ export default function WorkflowGuide({
       : t("workflow.contexts_workflow_user_subtitle", "Define tus directivas, supervisa el plan de arquitectura de Gemini y úsalo en tus prompts");
 
   return (
-    <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/30 border border-slate-800/90 rounded-2xl p-5 shadow-xl relative overflow-hidden">
-      {/* Glow background accent */}
-      <div className="absolute top-0 right-1/4 w-72 h-32 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
-
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800/80">
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-400">
-            {isValidator ? <ShieldCheck className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm sm:text-base font-bold text-white tracking-tight">
-                {title}
-              </h2>
-              <span
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                  isValidator
-                    ? "bg-purple-500/10 text-purple-300 border-purple-500/30"
-                    : "bg-blue-500/10 text-blue-300 border-blue-500/30"
-                }`}
-              >
-                {isValidator ? t("navbar.role_validator", "Validador") : t("navbar.role_user", "Usuario")}
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>
-          </div>
-        </div>
-
-        {onFilterStep && (
-          <button
-            type="button"
-            onClick={() => onFilterStep("ALL")}
-            className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all self-start sm:self-auto ${
-              !activeFilterStep || activeFilterStep === "ALL"
-                ? "bg-slate-800 text-slate-200 border border-slate-700 shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
+    <nav
+      aria-label="Workflow Breadcrumb"
+      className="relative z-20 flex flex-wrap items-center justify-between gap-2 p-1.5 sm:p-2 bg-slate-900/90 border border-slate-800 rounded-xl shadow-md backdrop-blur-sm"
+    >
+      {/* Breadcrumb Steps List */}
+      <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
+        {/* Flow Tag */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-[11px] font-semibold text-slate-300 shrink-0">
+          {isValidator ? (
+            <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
+          ) : (
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+          )}
+          <span className="hidden sm:inline font-medium">{title}</span>
+          <span
+            className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
+              isValidator
+                ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
             }`}
           >
-            {t("workflow.filter_all", "Todas las etapas")}
-          </button>
-        )}
-      </div>
+            {isValidator ? t("navbar.role_validator", "Validador") : t("navbar.role_user", "Usuario")}
+          </span>
+        </div>
 
-      {/* Steps Pipeline */}
-      <div className={`grid grid-cols-1 sm:grid-cols-2 ${steps.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"} gap-3 mt-4`}>
-        {steps.map((step) => {
+        <span className="text-slate-600 select-none">/</span>
+
+        {/* Steps */}
+        {steps.map((step, idx) => {
           const Icon = step.icon;
           const isSelected = activeFilterStep === step.key;
 
-          const cardContent = (
+          const stepElement = (
             <div
-              className={`h-full p-3.5 rounded-xl border transition-all relative flex flex-col justify-between ${
+              className={`relative group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer select-none ${
                 isSelected
-                  ? "bg-indigo-600/15 border-indigo-500 text-white shadow-md shadow-indigo-600/10"
-                  : "bg-slate-950/70 border-slate-800/80 hover:border-slate-700/80 text-slate-300 hover:bg-slate-900/60"
+                  ? "bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400 font-semibold"
+                  : "bg-slate-950/60 hover:bg-slate-800/80 text-slate-300 hover:text-white border border-slate-800/80"
               }`}
             >
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold font-mono ${
-                        isSelected
-                          ? "bg-indigo-600 text-white shadow-sm"
-                          : "bg-slate-800 text-slate-300 border border-slate-700"
-                      }`}
-                    >
+              <span
+                className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold font-mono ${
+                  isSelected ? "bg-white/20 text-white" : "bg-slate-800 text-slate-300"
+                }`}
+              >
+                {step.number}
+              </span>
+              <Icon className="w-3.5 h-3.5 shrink-0" />
+              <span>{step.title.replace(/^\d+\.\s*/, "")}</span>
+
+              {step.badgeCount !== undefined && step.badgeCount > 0 && (
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
+                    isSelected
+                      ? "bg-white text-indigo-700"
+                      : step.badgeVariant === "amber"
+                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                      : step.badgeVariant === "purple"
+                      ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                      : step.badgeVariant === "emerald"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      : "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                  }`}
+                >
+                  {step.badgeCount}
+                </span>
+              )}
+
+              {/* Floating Tooltip */}
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:flex flex-col items-center pointer-events-none z-50 transition-all duration-150 animate-fadeIn">
+                {/* Arrow pointing up */}
+                <div className="w-2.5 h-2.5 bg-slate-900 rotate-45 border-l border-t border-slate-700 -mb-1.5 z-10" />
+                <div className="bg-slate-900/95 border border-slate-700 text-slate-200 text-xs rounded-xl py-2.5 px-3.5 shadow-2xl w-64 max-w-xs text-left backdrop-blur-md">
+                  <div className="flex items-center gap-2 font-bold text-white mb-1.5">
+                    <span className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] shrink-0 font-mono">
                       {step.number}
                     </span>
-                    <Icon
-                      className={`w-4 h-4 ${
-                        isSelected ? "text-indigo-300" : "text-slate-400"
-                      }`}
-                    />
+                    <span className="text-xs">{step.title}</span>
                   </div>
-
+                  <p className="text-[11px] text-slate-300 leading-relaxed font-normal">
+                    {step.description}
+                  </p>
                   {step.badgeCount !== undefined && step.badgeCount > 0 && (
-                    <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                        step.badgeVariant === "amber"
-                          ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
-                          : step.badgeVariant === "purple"
-                          ? "bg-purple-500/15 text-purple-300 border-purple-500/30"
-                          : step.badgeVariant === "emerald"
-                          ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-                          : "bg-indigo-500/15 text-indigo-300 border-indigo-500/30"
-                      }`}
-                    >
-                      {step.badgeCount}
-                    </span>
+                    <div className="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between text-[10px] text-amber-300 font-medium">
+                      <span>{t("workflow.pending_badge", { count: step.badgeCount })}</span>
+                      <span className="text-slate-400">Clic para filtrar</span>
+                    </div>
+                  )}
+                  {step.href && (
+                    <div className="mt-1.5 pt-1 border-t border-slate-800/80 text-[10px] text-indigo-300 flex items-center justify-between">
+                      <span>Ir a la sección</span>
+                      <span>→</span>
+                    </div>
                   )}
                 </div>
-
-                <h3 className="text-xs font-bold text-slate-100">{step.title}</h3>
-                <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                  {step.description}
-                </p>
               </div>
-
-              {step.href && (
-                <div className="mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-indigo-400 font-medium">
-                  <span>Ir a sección</span>
-                  <ArrowRight className="w-3 h-3" />
-                </div>
-              )}
             </div>
           );
 
-          return onFilterStep ? (
-            <button
-              key={step.key}
-              type="button"
-              onClick={() => onFilterStep(step.key)}
-              className="text-left w-full focus:outline-none"
-            >
-              {cardContent}
-            </button>
-          ) : step.href ? (
-            <Link key={step.key} href={step.href}>
-              {cardContent}
-            </Link>
-          ) : (
-            <div key={step.key}>{cardContent}</div>
+          return (
+            <React.Fragment key={step.key}>
+              {onFilterStep ? (
+                <button
+                  type="button"
+                  onClick={() => onFilterStep(step.key)}
+                  className="focus:outline-none"
+                >
+                  {stepElement}
+                </button>
+              ) : step.href ? (
+                <Link href={step.href}>{stepElement}</Link>
+              ) : (
+                stepElement
+              )}
+
+              {idx < steps.length - 1 && (
+                <ChevronRight className="w-3.5 h-3.5 text-slate-600 shrink-0 select-none" />
+              )}
+            </React.Fragment>
           );
         })}
       </div>
-    </div>
+
+      {/* Right action: "Todas las etapas" pill */}
+      {onFilterStep && (
+        <button
+          type="button"
+          onClick={() => onFilterStep("ALL")}
+          className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition-all shrink-0 ${
+            !activeFilterStep || activeFilterStep === "ALL"
+              ? "bg-slate-800 text-white border border-slate-700 shadow-sm"
+              : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          {t("workflow.filter_all", "Todas las etapas")}
+        </button>
+      )}
+    </nav>
   );
 }
