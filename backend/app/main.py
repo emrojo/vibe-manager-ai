@@ -207,6 +207,6 @@ def get_system_config():
     """Retorna configuración pública segura para adaptar la interfaz (sin exponer secretos)."""
     return {
         "environment": settings.ENVIRONMENT,
-        "show_demo_credentials": settings.ENVIRONMENT != "production" and settings.SEED_DEMO_DATA,
+        "show_demo_credentials": False,
     }
 
