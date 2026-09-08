@@ -20,6 +20,10 @@ class PromptTaskCreate(BaseModel):
     project_id: Optional[int] = None
     repo_validator_id: Optional[int] = None
     prompt: str = Field(..., min_length=5, max_length=4000)
+    context_id: Optional[int] = None
+    new_context_identifier: Optional[str] = None
+    new_context_name: Optional[str] = None
+    new_context_text: Optional[str] = None
 
     @field_validator("prompt")
     @classmethod
@@ -80,6 +84,9 @@ class PromptTaskRead(BaseModel):
     plan_validator_name: Optional[str] = None
     plan_validated_at: Optional[datetime.datetime] = None
     plan_rejection_reason: Optional[str] = None
+    context_id: Optional[int] = None
+    context_name: Optional[str] = None
+    tokens_used: int = 0
     created_at: datetime.datetime
     updated_at: datetime.datetime
 

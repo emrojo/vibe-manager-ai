@@ -23,6 +23,8 @@ from app.routers.validation import router as validation_router
 from app.routers.repo_validators import router as repo_validators_router
 from app.routers.chat import router as chat_router
 from app.routers.processes import router as processes_router
+from app.routers.contexts import router as contexts_router
+from app.routers.quotas import router as quotas_router
 from app.services.db_migrator import auto_migrate_sqlite_to_pg
 
 logging.basicConfig(level=logging.INFO)
@@ -64,6 +66,12 @@ async def lifespan(app: FastAPI):
             await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS repo_validator_id INTEGER;"))
             await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS assigned_validator_id INTEGER;"))
             await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS plan_feedback TEXT;"))
+            await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS context_id INTEGER;"))
+            await conn.execute(text("ALTER TABLE prompt_tasks ADD COLUMN IF NOT EXISTS tokens_used INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS token_quota_limit INTEGER DEFAULT 100000;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS tokens_used_in_window INTEGER DEFAULT 0;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_window_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS quota_window_hours INTEGER DEFAULT 5;"))
         except Exception as e:
             logger.debug(f"Schema column check: {e}")
 
@@ -170,6 +178,8 @@ app.include_router(validation_router, prefix=settings.API_V1_STR)
 app.include_router(repo_validators_router, prefix=settings.API_V1_STR)
 app.include_router(chat_router, prefix=settings.API_V1_STR)
 app.include_router(processes_router, prefix=settings.API_V1_STR)
+app.include_router(contexts_router, prefix=settings.API_V1_STR)
+app.include_router(quotas_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
 def read_root():

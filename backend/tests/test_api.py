@@ -626,11 +626,11 @@ async def test_alembic_migration_schema():
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
     assert len(heads) == 1
-    assert heads[0] == "0002_plan_fb"
+    assert heads[0] == "0003_quotas_ctx"
 
     # Check migration revision head details
     head_revision = script.get_revision(heads[0])
-    assert "add plan_feedback to prompt_tasks" in head_revision.doc
+    assert "add quotas and contexts" in head_revision.doc
 
 
 @pytest.mark.asyncio
@@ -797,3 +797,212 @@ async def test_plan_modification_workflow():
         assert "test-project" in plan_out["summary"]
         assert "Usar almacenamiento temporal" in plan_out["plan_markdown"]
         assert "Ajustes del validador" in plan_out["plan_markdown"]
+
+
+@pytest.mark.asyncio
+async def test_user_token_quota_and_contexts_workflow():
+    """Verify 5-hour quota tracking, personal context management, privacy isolation, and admin controls."""
+    from sqlalchemy import select
+    from app.models.user import User
+    from app.models.prompt_task import PromptTask
+    from app.models.user_context import UserContext
+    from app.services.run_task import call_gemini_plan, call_gemini
+    from app.services.queue_worker import process_prompt_task
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 1. Admin setup
+        admin_reg = await ac.post("/api/auth/register", json={
+            "email": "adminquota@vibemanager.ai",
+            "name": "Admin Quota",
+            "password": "Password123!"
+        })
+        if admin_reg.status_code == 200:
+            admin_token = admin_reg.json()["access_token"]
+        else:
+            admin_login = await ac.post("/api/auth/login", json={
+                "email": "adminquota@vibemanager.ai",
+                "password": "Password123!"
+            })
+            admin_token = admin_login.json()["access_token"]
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # Create invitation code for user registration
+        inv_res = await ac.post("/api/admin/invitations", json={"max_uses": 10, "expires_in_days": 10}, headers=admin_headers)
+        assert inv_res.status_code == 200, inv_res.text
+        invite_code = inv_res.json()["code"]
+
+        # 2. Register User 1 and User 2
+        u1_res = await ac.post("/api/auth/register", json={
+            "email": "user1_quota@vibemanager.ai",
+            "name": "User One",
+            "password": "Password123!",
+            "invite_code": invite_code
+        })
+        assert u1_res.status_code == 200, u1_res.text
+        u1_token = u1_res.json()["access_token"]
+        u1_headers = {"Authorization": f"Bearer {u1_token}"}
+
+        u2_res = await ac.post("/api/auth/register", json={
+            "email": "user2_quota@vibemanager.ai",
+            "name": "User Two",
+            "password": "Password123!",
+            "invite_code": invite_code
+        })
+        assert u2_res.status_code == 200, u2_res.text
+        u2_token = u2_res.json()["access_token"]
+        u2_headers = {"Authorization": f"Bearer {u2_token}"}
+
+        # 3. Check Initial Quota for User 1
+        q_res = await ac.get("/api/quotas/my-quota", headers=u1_headers)
+        assert q_res.status_code == 200
+        q_data = q_res.json()
+        assert q_data["token_quota_limit"] == 100000
+        assert q_data["tokens_used_in_window"] == 0
+        assert q_data["tokens_remaining"] == 100000
+        assert q_data["percentage_used"] == 0.0
+        assert q_data["is_exceeded"] is False
+
+        # 4. User 1 creates a personal context
+        ctx_payload = {
+            "identifier": "backend-fastapi-rules",
+            "name": "Directivas FastAPI",
+            "description": "Estilo de código y convenciones backend",
+            "context_text": "Utilizar siempre tipos estrictos de Pydantic v2 y async sessions con SQLAlchemy."
+        }
+        create_ctx_res = await ac.post("/api/contexts", json=ctx_payload, headers=u1_headers)
+        assert create_ctx_res.status_code in (200, 201), create_ctx_res.text
+        ctx1_data = create_ctx_res.json()
+        ctx1_id = ctx1_data["id"]
+        assert ctx1_data["identifier"] == "backend-fastapi-rules"
+        assert ctx1_data["character_count"] > 0
+        assert ctx1_data["estimated_tokens"] > 0
+
+        # Duplicate identifier for same user fails
+        dup_res = await ac.post("/api/contexts", json=ctx_payload, headers=u1_headers)
+        assert dup_res.status_code == 400
+        assert "Ya tienes un contexto con el identificador" in dup_res.json()["detail"]
+
+        # 5. PRIVACY ISOLATION: User 2 CANNOT access or delete User 1's context
+        u2_get_res = await ac.get(f"/api/contexts/{ctx1_id}", headers=u2_headers)
+        assert u2_get_res.status_code == 404
+
+        u2_del_res = await ac.delete(f"/api/contexts/{ctx1_id}", headers=u2_headers)
+        assert u2_del_res.status_code == 404
+
+        u2_list = await ac.get("/api/contexts", headers=u2_headers)
+        assert u2_list.status_code == 200
+        assert len(u2_list.json()) == 0
+
+        # 6. Live Token Estimation endpoint
+        est_res = await ac.post("/api/contexts/estimate", json={
+            "prompt": "Crear un nuevo endpoint de estadísticas",
+            "context_id": ctx1_id
+        }, headers=u1_headers)
+        assert est_res.status_code == 200
+        est_data = est_res.json()
+        assert est_data["prompt_tokens_estimated"] > 0
+        assert est_data["context_tokens_estimated"] == ctx1_data["estimated_tokens"]
+        assert est_data["total_tokens_estimated"] == est_data["prompt_tokens_estimated"] + est_data["context_tokens_estimated"]
+        assert est_data["fits_in_quota"] is True
+
+        # 7. Create Project and Prompt with Context
+        proj_res = await ac.post("/api/projects", json={
+            "name": "Quota Test Project",
+            "repo_url": "https://github.com/vibe/quota-test",
+            "default_branch": "main"
+        }, headers=admin_headers)
+        proj_id = proj_res.json()["id"]
+
+        prompt_res = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Generar servicios de auditoría",
+            "context_id": ctx1_id
+        }, headers=u1_headers)
+        assert prompt_res.status_code == 200
+        task_data = prompt_res.json()
+        task_id = task_data["id"]
+        assert task_data["context_id"] == ctx1_id
+
+        # 8. Simulate token deduction and verify runner usage metadata
+        gemini_out = call_gemini_plan(
+            prompt="Generar servicios de auditoría",
+            project_name="quota-test",
+            api_key="",
+            context_text="Utilizar tipos estrictos"
+        )
+        assert gemini_out["usage_metadata"]["total_tokens"] > 0
+
+        from app.models.user_token_log import UserTokenLog
+        async with TestingSessionLocal() as session:
+            q_u = await session.execute(select(User).where(User.email == "user1_quota@vibemanager.ai"))
+            u_row = q_u.scalars().first()
+            u_row.tokens_used_in_window = 500
+            token_log = UserTokenLog(
+                user_id=u_row.id,
+                task_id=task_id,
+                context_id=ctx1_id,
+                tokens_prompt=350,
+                tokens_completion=150,
+                tokens_total=500,
+                tokens_cached=0
+            )
+            session.add(token_log)
+            await session.commit()
+
+        # Check that user's quota updated and token log created
+        q_after = await ac.get("/api/quotas/my-quota", headers=u1_headers)
+        assert q_after.status_code == 200
+        q_after_data = q_after.json()
+        assert q_after_data["tokens_used_in_window"] == 500
+        assert q_after_data["tokens_remaining"] == 99500
+        assert len(q_after_data["recent_logs"]) > 0
+        assert q_after_data["recent_logs"][0]["task_id"] == task_id
+        assert q_after_data["recent_logs"][0]["tokens_total"] == 500
+
+        # 9. Admin Quota Management
+        admin_quotas_res = await ac.get("/api/admin/quotas", headers=admin_headers)
+        assert admin_quotas_res.status_code == 200
+        quotas_list = admin_quotas_res.json()
+        u1_quota_entry = next((q for q in quotas_list if q["email"] == "user1_quota@vibemanager.ai"), None)
+        assert u1_quota_entry is not None
+        assert u1_quota_entry["tokens_used_in_window"] > 0
+
+        # Admin lowers User 1's quota below used amount to trigger HTTP 429
+        update_q_res = await ac.put(f"/api/admin/quotas/{u1_quota_entry['user_id']}", json={
+            "token_quota_limit": 10,
+            "quota_window_hours": 5
+        }, headers=admin_headers)
+        assert update_q_res.status_code == 200
+        assert update_q_res.json()["token_quota_limit"] == 10
+        assert update_q_res.json()["is_exceeded"] is True
+
+        # User 1 attempting to send prompt now gets HTTP 429
+        rejected_prompt = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Este prompt debe ser bloqueado por cuota"
+        }, headers=u1_headers)
+        assert rejected_prompt.status_code == 429
+        assert "Has agotado tu cuota de tokens" in rejected_prompt.json()["detail"]
+
+        # Admin resets User 1's quota
+        reset_res = await ac.post(f"/api/admin/quotas/{u1_quota_entry['user_id']}/reset", headers=admin_headers)
+        assert reset_res.status_code == 200
+
+        # Now User 1 quota is 0 used and prompt is accepted again
+        q_reset = await ac.get("/api/quotas/my-quota", headers=u1_headers)
+        assert q_reset.json()["tokens_used_in_window"] == 0
+
+        # 10. Admin views all contexts and deletes User 1's context
+        admin_ctx_res = await ac.get("/api/admin/contexts", headers=admin_headers)
+        assert admin_ctx_res.status_code == 200
+        all_contexts = admin_ctx_res.json()
+        assert any(c["id"] == ctx1_id for c in all_contexts)
+
+        del_admin_res = await ac.delete(f"/api/admin/contexts/{ctx1_id}", headers=admin_headers)
+        assert del_admin_res.status_code == 200
+
+        # User 1 no longer has the context
+        u1_ctx_res = await ac.get("/api/contexts", headers=u1_headers)
+        assert len(u1_ctx_res.json()) == 0
+

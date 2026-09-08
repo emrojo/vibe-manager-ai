@@ -7,6 +7,8 @@ from app.database import AsyncSessionLocal
 from app.models.prompt_task import PromptTask
 from app.models.project import Project
 from app.models.user import User
+from app.models.user_token_log import UserTokenLog
+from app.services.context_cache_service import check_and_refresh_quota
 from app.services.crypto import decrypt_token
 from app.services.docker_runner import execute_task_sandbox
 from app.services.task_streamer import task_stream_manager
@@ -21,6 +23,8 @@ async def process_prompt_task(task_id: int):
     
     project_name = "Proyecto"
     user_name = "Usuario"
+    context_text = None
+    gemini_cache_name = None
     
     async with AsyncSessionLocal() as db:
         # Mark as RUNNING
@@ -29,7 +33,8 @@ async def process_prompt_task(task_id: int):
             .options(
                 selectinload(PromptTask.project),
                 selectinload(PromptTask.user),
-                selectinload(PromptTask.repo_validator)
+                selectinload(PromptTask.repo_validator),
+                selectinload(PromptTask.context)
             )
             .where(PromptTask.id == task_id)
         )
@@ -42,6 +47,10 @@ async def process_prompt_task(task_id: int):
         plan_content_cached = task.plan_content
         plan_feedback_cached = task.plan_feedback
         mode = "EXECUTE" if initial_status == "PLAN_APPROVED" else "PLAN"
+
+        if task.context:
+            context_text = task.context.context_text
+            gemini_cache_name = task.context.gemini_cache_name
 
         task.status = "RUNNING"
         if mode == "PLAN":
@@ -101,7 +110,9 @@ async def process_prompt_task(task_id: int):
             gemini_model=settings.GEMINI_MODEL,
             mode=mode,
             plan_content=plan_content_cached,
-            plan_feedback=plan_feedback_cached
+            plan_feedback=plan_feedback_cached,
+            context_text=context_text,
+            cached_content_name=gemini_cache_name
         )
     except Exception as e:
         logger.exception(f"[Worker] Excepción no controlada ejecutando tarea #{task_id}: {e}")
@@ -111,9 +122,13 @@ async def process_prompt_task(task_id: int):
             "logs": f"Excepción fatal en worker: {str(e)}"
         }
 
-    # Update task in DB
+    # Update task in DB and deduct tokens
     async with AsyncSessionLocal() as db:
-        res = await db.execute(select(PromptTask).where(PromptTask.id == task_id))
+        res = await db.execute(
+            select(PromptTask)
+            .options(selectinload(PromptTask.user))
+            .where(PromptTask.id == task_id)
+        )
         task = res.scalars().first()
         if not task:
             return
@@ -123,6 +138,29 @@ async def process_prompt_task(task_id: int):
         task.commit_message = runner_result.get("commit_message")
         task.pr_url = runner_result.get("pr_url")
         task.pr_number = runner_result.get("pr_number")
+
+        # Record token usage reported by Gemini runner
+        usage_metadata = runner_result.get("usage_metadata") or {}
+        prompt_tokens = usage_metadata.get("prompt_tokens", 0)
+        completion_tokens = usage_metadata.get("completion_tokens", 0)
+        total_tokens = usage_metadata.get("total_tokens") or runner_result.get("tokens_used", 0) or 0
+        cached_tokens = usage_metadata.get("cached_tokens", 0)
+
+        if total_tokens > 0:
+            task.tokens_used = (task.tokens_used or 0) + total_tokens
+            if task.user:
+                check_and_refresh_quota(task.user)
+                task.user.tokens_used_in_window = (task.user.tokens_used_in_window or 0) + total_tokens
+                token_log = UserTokenLog(
+                    user_id=task.user.id,
+                    task_id=task.id,
+                    context_id=task.context_id,
+                    tokens_prompt=prompt_tokens,
+                    tokens_completion=completion_tokens,
+                    tokens_total=total_tokens,
+                    tokens_cached=cached_tokens
+                )
+                db.add(token_log)
         
         if runner_result.get("stopped") or task.status == "STOPPED":
             task.status = "STOPPED"

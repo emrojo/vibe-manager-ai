@@ -10,7 +10,14 @@ from app.models.prompt_task import PromptTask
 from app.models.project import Project
 from app.models.user import User
 from app.models.repo_validator import RepoValidator
+from app.models.user_context import UserContext
+from app.config import settings
 from app.schemas.prompt_task import PromptTaskCreate, PromptTaskRead
+from app.services.context_cache_service import (
+    estimate_tokens,
+    check_and_refresh_quota,
+    try_create_gemini_context_cache
+)
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
 
@@ -26,6 +33,7 @@ def map_prompt_task(task: PromptTask) -> PromptTaskRead:
     assigned_name = getattr(task, "assigned_validator", None).name if getattr(task, "assigned_validator", None) else None
     assigned_email = getattr(task, "assigned_validator", None).email if getattr(task, "assigned_validator", None) else None
     repo_url = task.repo_validator.repo_url if task.repo_validator else (task.project.repo_url if task.project else None)
+    context_name = getattr(task, "context", None).name if getattr(task, "context", None) else None
 
     return PromptTaskRead(
         id=task.id,
@@ -58,6 +66,9 @@ def map_prompt_task(task: PromptTask) -> PromptTaskRead:
         plan_validator_name=getattr(task, "plan_validator", None).name if getattr(task, "plan_validator", None) else None,
         plan_validated_at=task.plan_validated_at,
         plan_rejection_reason=task.plan_rejection_reason,
+        context_id=task.context_id,
+        context_name=context_name,
+        tokens_used=task.tokens_used or 0,
         created_at=task.created_at,
         updated_at=task.updated_at
     )
@@ -99,7 +110,16 @@ async def submit_prompt(
             detail="Debes especificar un proyecto o un validador de repositorio."
         )
 
-    # Check user active tasks quota (max 3 concurrent)
+    # 1. Enforce 5-Hour Token Quota
+    is_exceeded, used, limit, seconds_left = check_and_refresh_quota(current_user)
+    if is_exceeded:
+        minutes_left = max(1, seconds_left // 60)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Has agotado tu cuota de tokens ({used:,}/{limit:,}) para esta ventana de 5 horas. Se reiniciará en {minutes_left} minutos."
+        )
+
+    # 2. Check user active tasks quota (max 3 concurrent)
     active_statuses = ["PENDING", "APPROVED", "RUNNING", "PLAN_GENERATED", "PLAN_APPROVED"]
     active_res = await db.execute(
         select(func.count(PromptTask.id))
@@ -120,13 +140,65 @@ async def submit_prompt(
             detail="El prompt no puede estar vacío"
         )
 
+    # 3. Resolve Personal Context (Privacy enforced: user_id == current_user.id)
+    selected_context = None
+    if payload.context_id:
+        ctx_res = await db.execute(
+            select(UserContext).where(
+                UserContext.id == payload.context_id,
+                UserContext.user_id == current_user.id
+            )
+        )
+        selected_context = ctx_res.scalars().first()
+        if not selected_context:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="El contexto seleccionado no existe o no tienes permiso para utilizarlo."
+            )
+    elif payload.new_context_identifier and payload.new_context_text:
+        clean_ident = payload.new_context_identifier.strip().lower()
+        clean_name = payload.new_context_name.strip() if payload.new_context_name else clean_ident
+        char_cnt = len(payload.new_context_text)
+        tok_cnt = estimate_tokens(payload.new_context_text)
+
+        cache_name, expire_dt = await try_create_gemini_context_cache(
+            context_text=payload.new_context_text,
+            identifier=clean_ident,
+            api_key=settings.GEMINI_API_KEY,
+            model=settings.GEMINI_MODEL
+        )
+
+        selected_context = UserContext(
+            user_id=current_user.id,
+            identifier=clean_ident,
+            name=clean_name,
+            context_text=payload.new_context_text,
+            character_count=char_cnt,
+            estimated_tokens=tok_cnt,
+            gemini_cache_name=cache_name,
+            gemini_cache_expire_time=expire_dt
+        )
+        db.add(selected_context)
+        await db.flush()
+
+    # 4. Check if estimated total tokens fit in remaining quota
+    est_prompt_tokens = estimate_tokens(cleaned_prompt)
+    est_ctx_tokens = selected_context.estimated_tokens if selected_context else 0
+    if used + est_prompt_tokens + est_ctx_tokens > limit:
+        minutes_left = max(1, seconds_left // 60)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Esta petición excede los tokens restantes de tu cuota de 5 horas. Disponibles: {limit - used:,}, Requeridos: ~{est_prompt_tokens + est_ctx_tokens:,}. Se reiniciará en {minutes_left} minutos."
+        )
+
     task = PromptTask(
         project_id=project.id,
         user_id=current_user.id,
         original_prompt=cleaned_prompt,
         status="PENDING",
         repo_validator_id=repo_validator.id if repo_validator else None,
-        assigned_validator_id=repo_validator.user_id if repo_validator else None
+        assigned_validator_id=repo_validator.user_id if repo_validator else None,
+        context_id=selected_context.id if selected_context else None
     )
     db.add(task)
     await db.commit()
@@ -141,7 +213,8 @@ async def submit_prompt(
             selectinload(PromptTask.validator),
             selectinload(PromptTask.assigned_validator),
             selectinload(PromptTask.plan_validator),
-            selectinload(PromptTask.repo_validator)
+            selectinload(PromptTask.repo_validator),
+            selectinload(PromptTask.context)
         )
         .where(PromptTask.id == task.id)
     )
@@ -161,7 +234,8 @@ async def list_my_prompts(
             selectinload(PromptTask.validator),
             selectinload(PromptTask.assigned_validator),
             selectinload(PromptTask.plan_validator),
-            selectinload(PromptTask.repo_validator)
+            selectinload(PromptTask.repo_validator),
+            selectinload(PromptTask.context)
         )
         .where(PromptTask.user_id == current_user.id)
         .order_by(PromptTask.created_at.desc())

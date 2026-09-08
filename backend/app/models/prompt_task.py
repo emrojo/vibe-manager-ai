@@ -42,6 +42,10 @@ class PromptTask(Base):
     plan_rejection_reason = Column(Text, nullable=True)
     plan_feedback = Column(Text, nullable=True)
 
+    # Personal Context & Token Consumption
+    context_id = Column(Integer, ForeignKey("user_contexts.id", ondelete="SET NULL"), nullable=True)
+    tokens_used = Column(Integer, default=0, nullable=False)
+
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)
 
@@ -51,3 +55,4 @@ class PromptTask(Base):
     plan_validator = relationship("User", foreign_keys=[plan_validated_by_id])
     repo_validator = relationship("RepoValidator", back_populates="tasks")
     assigned_validator = relationship("User", foreign_keys=[assigned_validator_id])
+    context = relationship("UserContext", back_populates="tasks")

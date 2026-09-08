@@ -14,8 +14,13 @@ from app.models.user import User
 from app.models.invitation import Invitation
 from app.models.project import Project
 from app.models.prompt_task import PromptTask
+from app.models.user_context import UserContext
+from app.models.user_token_log import UserTokenLog
 from app.schemas.user import UserRead, UserUpdate
 from app.schemas.invitation import InvitationCreate, InvitationRead
+from app.schemas.user_context import UserContextRead
+from app.schemas.token_quota import AdminUserQuotaRead, AdminUserQuotaUpdate
+from app.services.context_cache_service import check_and_refresh_quota
 
 router = APIRouter(
     prefix="/admin",
@@ -227,4 +232,190 @@ async def update_gemini_settings(payload: GeminiSettingsUpdate):
         "configured": bool(settings.GEMINI_API_KEY),
         "model": settings.GEMINI_MODEL
     }
+
+# --- Admin Quotas Management ---
+
+@router.get("/quotas", response_model=List[AdminUserQuotaRead])
+async def list_admin_user_quotas(db: AsyncSession = Depends(get_db)):
+    """List all users with their 5-hour quota and consumption metrics."""
+    res = await db.execute(select(User).order_by(User.id.asc()))
+    users = res.scalars().all()
+
+    result = []
+    for u in users:
+        is_exceeded, used, limit, seconds_left = check_and_refresh_quota(u)
+
+        # Count contexts
+        ctx_count_res = await db.execute(select(func.count(UserContext.id)).where(UserContext.user_id == u.id))
+        contexts_count = ctx_count_res.scalar() or 0
+
+        # Lifetime tokens
+        lifetime_res = await db.execute(
+            select(func.coalesce(func.sum(UserTokenLog.tokens_total), 0)).where(UserTokenLog.user_id == u.id)
+        )
+        total_lifetime = lifetime_res.scalar() or 0
+
+        window_hours = getattr(u, "quota_window_hours", 5) or 5
+        window_start = u.quota_window_start or datetime.datetime.utcnow()
+        reset_at = window_start + datetime.timedelta(hours=window_hours)
+        remaining = max(0, limit - used)
+        pct = round(min(100.0, (used / limit * 100.0) if limit > 0 else 0.0), 1)
+
+        result.append(
+            AdminUserQuotaRead(
+                user_id=u.id,
+                email=u.email,
+                name=u.name,
+                role=u.role,
+                is_active=u.is_active,
+                is_banned=u.is_banned,
+                token_quota_limit=limit,
+                tokens_used_in_window=used,
+                tokens_remaining=remaining,
+                percentage_used=pct,
+                quota_window_start=window_start,
+                quota_reset_at=reset_at,
+                seconds_until_reset=seconds_left,
+                is_exceeded=is_exceeded,
+                contexts_count=contexts_count,
+                total_lifetime_tokens=total_lifetime
+            )
+        )
+
+    await db.commit()
+    return result
+
+@router.put("/quotas/{user_id}", response_model=AdminUserQuotaRead)
+async def update_user_quota(
+    user_id: int,
+    payload: AdminUserQuotaUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """Adjust the 5-hour token quota limit for a specific user."""
+    res = await db.execute(select(User).where(User.id == user_id))
+    user = res.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    if payload.token_quota_limit is not None:
+        user.token_quota_limit = payload.token_quota_limit
+    if payload.quota_window_hours is not None:
+        user.quota_window_hours = payload.quota_window_hours
+
+    await db.commit()
+    await db.refresh(user)
+
+    is_exceeded, used, limit, seconds_left = check_and_refresh_quota(user)
+    window_hours = getattr(user, "quota_window_hours", 5) or 5
+    window_start = user.quota_window_start or datetime.datetime.utcnow()
+    reset_at = window_start + datetime.timedelta(hours=window_hours)
+    remaining = max(0, limit - used)
+    pct = round(min(100.0, (used / limit * 100.0) if limit > 0 else 0.0), 1)
+
+    return AdminUserQuotaRead(
+        user_id=user.id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        is_active=user.is_active,
+        is_banned=user.is_banned,
+        token_quota_limit=limit,
+        tokens_used_in_window=used,
+        tokens_remaining=remaining,
+        percentage_used=pct,
+        quota_window_start=window_start,
+        quota_reset_at=reset_at,
+        seconds_until_reset=seconds_left,
+        is_exceeded=is_exceeded,
+        contexts_count=0,
+        total_lifetime_tokens=0
+    )
+
+@router.post("/quotas/{user_id}/reset", response_model=AdminUserQuotaRead)
+async def reset_user_quota_window(
+    user_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Manually reset the 5-hour token window for a user."""
+    res = await db.execute(select(User).where(User.id == user_id))
+    user = res.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    now = datetime.datetime.utcnow()
+    user.tokens_used_in_window = 0
+    user.quota_window_start = now
+    await db.commit()
+    await db.refresh(user)
+
+    window_hours = getattr(user, "quota_window_hours", 5) or 5
+    reset_at = now + datetime.timedelta(hours=window_hours)
+    limit = getattr(user, "token_quota_limit", 100000) or 100000
+
+    return AdminUserQuotaRead(
+        user_id=user.id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        is_active=user.is_active,
+        is_banned=user.is_banned,
+        token_quota_limit=limit,
+        tokens_used_in_window=0,
+        tokens_remaining=limit,
+        percentage_used=0.0,
+        quota_window_start=now,
+        quota_reset_at=reset_at,
+        seconds_until_reset=window_hours * 3600,
+        is_exceeded=False,
+        contexts_count=0,
+        total_lifetime_tokens=0
+    )
+
+# --- Admin Contexts Management ---
+
+@router.get("/contexts", response_model=List[UserContextRead])
+async def list_admin_all_contexts(db: AsyncSession = Depends(get_db)):
+    """List all personal contexts across all users for admin review."""
+    res = await db.execute(
+        select(UserContext, User.name, User.email)
+        .join(User, UserContext.user_id == User.id)
+        .order_by(UserContext.created_at.desc())
+    )
+    rows = res.all()
+
+    return [
+        UserContextRead(
+            id=c.id,
+            user_id=c.user_id,
+            user_name=u_name,
+            user_email=u_email,
+            identifier=c.identifier,
+            name=c.name,
+            description=c.description,
+            context_text=c.context_text,
+            character_count=c.character_count,
+            estimated_tokens=c.estimated_tokens,
+            gemini_cache_name=c.gemini_cache_name,
+            gemini_cache_expire_time=c.gemini_cache_expire_time,
+            created_at=c.created_at,
+            updated_at=c.updated_at
+        )
+        for c, u_name, u_email in rows
+    ]
+
+@router.delete("/contexts/{context_id}")
+async def admin_delete_context(
+    context_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Admin endpoint to delete any user context."""
+    res = await db.execute(select(UserContext).where(UserContext.id == context_id))
+    ctx = res.scalars().first()
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Contexto no encontrado")
+
+    await db.delete(ctx)
+    await db.commit()
+    return {"message": f"Contexto #{context_id} ('{ctx.identifier}') eliminado por el administrador.", "id": context_id}
+
 

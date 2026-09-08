@@ -90,6 +90,9 @@ export interface PromptTask {
   plan_validator_name?: string;
   plan_validated_at?: string;
   plan_rejection_reason?: string;
+  context_id?: number;
+  context_name?: string;
+  tokens_used?: number;
   created_at: string;
   updated_at: string;
 }
@@ -189,3 +192,142 @@ export async function modifyTaskPlan(
     body: JSON.stringify(payload),
   });
 }
+
+export interface UserContext {
+  id: number;
+  user_id: number;
+  identifier: string;
+  name: string;
+  description?: string;
+  context_text: string;
+  character_count: number;
+  estimated_tokens: number;
+  gemini_cache_name?: string;
+  gemini_cache_expire_time?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserContextCreate {
+  identifier: string;
+  name: string;
+  description?: string;
+  context_text: string;
+}
+
+export interface UserTokenLog {
+  id: number;
+  user_id: number;
+  task_id?: number;
+  context_id?: number;
+  tokens_prompt: number;
+  tokens_completion: number;
+  tokens_total: number;
+  tokens_cached: number;
+  created_at: string;
+}
+
+export interface UserQuotaStatus {
+  user_id: number;
+  email: string;
+  token_quota_limit: number;
+  tokens_used_in_window: number;
+  tokens_remaining: number;
+  percentage_used: number;
+  quota_window_hours: number;
+  quota_window_start: string;
+  seconds_until_reset: number;
+  is_exceeded: boolean;
+  recent_logs: UserTokenLog[];
+}
+
+export interface AdminUserQuota {
+  user_id: number;
+  email: string;
+  name: string;
+  role: string;
+  token_quota_limit: number;
+  tokens_used_in_window: number;
+  tokens_remaining: number;
+  percentage_used: number;
+  quota_window_hours: number;
+  quota_window_start?: string;
+  seconds_until_reset: number;
+  is_exceeded: boolean;
+}
+
+export interface AdminUserQuotaUpdate {
+  token_quota_limit?: number;
+  quota_window_hours?: number;
+}
+
+export async function getUserQuota(): Promise<UserQuotaStatus> {
+  return apiRequest<UserQuotaStatus>("/quotas/my-quota");
+}
+
+export async function getUserContexts(): Promise<UserContext[]> {
+  return apiRequest<UserContext[]>("/contexts");
+}
+
+export async function createUserContext(data: UserContextCreate): Promise<UserContext> {
+  return apiRequest<UserContext>("/contexts", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteUserContext(id: number): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>(`/contexts/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export interface ContextEstimateResponse {
+  prompt_chars: number;
+  prompt_tokens_estimated: number;
+  context_chars: number;
+  context_tokens_estimated: number;
+  total_chars: number;
+  total_tokens_estimated: number;
+  fits_in_quota: boolean;
+  remaining_quota_tokens: number;
+}
+
+export async function estimateContextTokens(data: {
+  prompt: string;
+  context_id?: number | null;
+  context_text?: string | null;
+}): Promise<ContextEstimateResponse> {
+  return apiRequest<ContextEstimateResponse>("/contexts/estimate", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function getAdminQuotas(): Promise<AdminUserQuota[]> {
+  return apiRequest<AdminUserQuota[]>("/admin/quotas");
+}
+
+export async function updateAdminUserQuota(userId: number, data: AdminUserQuotaUpdate): Promise<AdminUserQuota> {
+  return apiRequest<AdminUserQuota>(`/admin/quotas/${userId}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function resetAdminUserQuota(userId: number): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>(`/admin/quotas/${userId}/reset`, {
+    method: "POST",
+  });
+}
+
+export async function getAdminContexts(): Promise<UserContext[]> {
+  return apiRequest<UserContext[]>("/admin/contexts");
+}
+
+export async function deleteAdminContext(id: number): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>(`/admin/contexts/${id}`, {
+    method: "DELETE",
+  });
+}
+

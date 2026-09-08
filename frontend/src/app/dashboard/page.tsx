@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
-import { apiRequest, Project, PromptTask, RepoTargetOption } from "@/lib/api";
+import { apiRequest, Project, PromptTask, RepoTargetOption, UserQuotaStatus, UserContext, getUserQuota, getUserContexts, deleteUserContext } from "@/lib/api";
 import { 
   Send, 
   FolderGit2, 
@@ -24,7 +24,15 @@ import {
   ShieldCheck,
   Plus,
   X,
-  KeyRound
+  KeyRound,
+  Coins,
+  Database,
+  Layers,
+  Cpu,
+  History,
+  Trash2,
+  HelpCircle,
+  Check
 } from "lucide-react";
 import LiveConsoleModal from "@/components/LiveConsoleModal";
 import UserPlanModal from "@/components/UserPlanModal";
@@ -44,6 +52,18 @@ export default function DashboardPage() {
   const [selectedPlanTask, setSelectedPlanTask] = useState<PromptTask | null>(null);
   const [filterPlanOnly, setFilterPlanOnly] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
+  // 5-Hour Token Quota and Contexts
+  const [quota, setQuota] = useState<UserQuotaStatus | null>(null);
+  const [contexts, setContexts] = useState<UserContext[]>([]);
+  const [showQuotaLogsModal, setShowQuotaLogsModal] = useState(false);
+  const [contextMode, setContextMode] = useState<"none" | "existing" | "new">("none");
+  const [selectedContextId, setSelectedContextId] = useState<number | null>(null);
+  const [newContextIdentifier, setNewContextIdentifier] = useState("");
+  const [newContextName, setNewContextName] = useState("");
+  const [newContextDescription, setNewContextDescription] = useState("");
+  const [newContextText, setNewContextText] = useState("");
+  const [deletingContextId, setDeletingContextId] = useState<number | null>(null);
 
   // Modal for registering as validator for a repo
   const [showValidatorModal, setShowValidatorModal] = useState(false);
@@ -85,11 +105,29 @@ export default function DashboardPage() {
     }
   };
 
+  const loadQuota = async () => {
+    try {
+      const data = await getUserQuota();
+      setQuota(data);
+    } catch (err: any) {
+      console.error("Error cargando cuota de tokens:", err);
+    }
+  };
+
+  const loadContexts = async () => {
+    try {
+      const data = await getUserContexts();
+      setContexts(data);
+    } catch (err: any) {
+      console.error("Error cargando contextos:", err);
+    }
+  };
+
   const loadData = async () => {
     if (!user) return;
     setRefreshing(true);
     try {
-      await Promise.all([loadTargets(), loadPrompts()]);
+      await Promise.all([loadTargets(), loadPrompts(), loadQuota(), loadContexts()]);
     } catch (err: any) {
       console.error("Error cargando datos:", err);
     } finally {
@@ -105,6 +143,62 @@ export default function DashboardPage() {
     }
   }, [user]);
 
+  // Real-time countdown ticker for quota window reset
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setQuota((prev) => {
+        if (!prev) return prev;
+        if (prev.seconds_until_reset <= 1) {
+          loadQuota();
+          return { ...prev, seconds_until_reset: 0 };
+        }
+        return { ...prev, seconds_until_reset: prev.seconds_until_reset - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const handleDeleteContext = async (id: number) => {
+    if (!confirm("¿Deseas eliminar este contexto de trabajo personal?")) return;
+    setDeletingContextId(id);
+    try {
+      await deleteUserContext(id);
+      if (selectedContextId === id) {
+        setSelectedContextId(null);
+      }
+      await loadContexts();
+    } catch (err: any) {
+      alert(err.message || "Error eliminando contexto");
+    } finally {
+      setDeletingContextId(null);
+    }
+  };
+
+  function formatTimeRemaining(seconds: number): string {
+    if (seconds <= 0) return "Reiniciando...";
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${secs}s`;
+    return `${secs}s`;
+  }
+
+  // Token calculations
+  const promptChars = promptText.length;
+  const promptTokens = promptChars > 0 ? Math.max(1, Math.ceil(promptChars / 3.8)) : 0;
+
+  const activeContext = contexts.find((c) => c.id === selectedContextId);
+  const contextChars = contextMode === "existing" && activeContext 
+    ? activeContext.character_count 
+    : (contextMode === "new" ? newContextText.length : 0);
+  const contextTokens = contextMode === "existing" && activeContext 
+    ? activeContext.estimated_tokens 
+    : (contextMode === "new" && newContextText.length > 0 ? Math.max(1, Math.ceil(newContextText.length / 3.8)) : 0);
+
+  const totalEstimatedTokens = promptTokens + contextTokens;
+  const willExceedQuota = quota ? (quota.tokens_remaining < totalEstimatedTokens) : false;
+
   const handleSubmitPrompt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedTargetKey || !promptText.trim()) return;
@@ -112,17 +206,43 @@ export default function DashboardPage() {
     const selectedTarget = targets.find((t) => `${t.id}_${t.project_id}` === selectedTargetKey);
     if (!selectedTarget) return;
 
+    if (contextMode === "existing" && !selectedContextId) {
+      setMessage({
+        type: "error",
+        text: "Has seleccionado 'Contexto guardado', pero no has seleccionado ninguno de la lista.",
+      });
+      return;
+    }
+
+    if (contextMode === "new" && (!newContextIdentifier.trim() || !newContextText.trim())) {
+      setMessage({
+        type: "error",
+        text: "Por favor proporciona un identificador y el contenido para el nuevo contexto.",
+      });
+      return;
+    }
+
     setSubmitting(true);
     setMessage(null);
+
+    const bodyPayload: any = {
+      repo_validator_id: selectedTarget.id > 0 ? selectedTarget.id : undefined,
+      project_id: selectedTarget.project_id,
+      prompt: promptText.trim(),
+    };
+
+    if (contextMode === "existing" && selectedContextId) {
+      bodyPayload.context_id = selectedContextId;
+    } else if (contextMode === "new") {
+      bodyPayload.new_context_identifier = newContextIdentifier.trim();
+      bodyPayload.new_context_name = newContextName.trim() || newContextIdentifier.trim();
+      bodyPayload.new_context_text = newContextText.trim();
+    }
 
     try {
       await apiRequest<PromptTask>("/prompts", {
         method: "POST",
-        body: JSON.stringify({
-          repo_validator_id: selectedTarget.id > 0 ? selectedTarget.id : undefined,
-          project_id: selectedTarget.project_id,
-          prompt: promptText.trim(),
-        }),
+        body: JSON.stringify(bodyPayload),
       });
 
       setMessage({
@@ -130,7 +250,14 @@ export default function DashboardPage() {
         text: `¡Prompt enviado con éxito! Asignado al validador ${selectedTarget.validator_name} para su revisión.`,
       });
       setPromptText("");
-      await loadPrompts();
+      if (contextMode === "new") {
+        setNewContextIdentifier("");
+        setNewContextName("");
+        setNewContextDescription("");
+        setNewContextText("");
+        setContextMode("none");
+      }
+      await Promise.all([loadPrompts(), loadQuota(), loadContexts()]);
     } catch (err: any) {
       setMessage({
         type: "error",
@@ -273,6 +400,76 @@ export default function DashboardPage() {
         </Link>
       </div>
 
+      {/* 5-Hour Token Quota Widget */}
+      {quota && (
+        <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-indigo-950/40 border border-slate-800 rounded-2xl p-5 shadow-xl relative overflow-hidden">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div className={`p-3 rounded-xl border shrink-0 ${quota.is_exceeded ? "bg-rose-500/10 border-rose-500/30 text-rose-400" : "bg-indigo-500/10 border-indigo-500/30 text-indigo-400"}`}>
+                <Coins className="w-6 h-6" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-sm font-semibold text-white">Cuota de Tokens (Ventana de {quota.quota_window_hours} Horas)</h3>
+                  {quota.is_exceeded ? (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                      Límite Alcanzado (429)
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                      Cuota Disponible
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-baseline gap-2 mt-1">
+                  <span className="text-xl sm:text-2xl font-bold font-mono text-white">
+                    {quota.tokens_remaining.toLocaleString()}
+                  </span>
+                  <span className="text-xs text-slate-400 font-mono">
+                    tokens restantes de {quota.token_quota_limit.toLocaleString()}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    ({quota.percentage_used}% consumido)
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 lg:self-center">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-300">
+                <Clock className="w-4 h-4 text-indigo-400" />
+                <span>Reinicio en:</span>
+                <span className="font-mono font-semibold text-indigo-300">{formatTimeRemaining(quota.seconds_until_reset)}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowQuotaLogsModal(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium flex items-center justify-center gap-2 transition-all shadow-sm"
+              >
+                <History className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Historial de Costos</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="mt-4">
+            <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden p-0.5 border border-slate-800">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${
+                  quota.percentage_used >= 100
+                    ? "bg-rose-500"
+                    : quota.percentage_used >= 80
+                    ? "bg-amber-500"
+                    : "bg-gradient-to-r from-indigo-500 to-violet-500"
+                }`}
+                style={{ width: `${Math.min(100, quota.percentage_used)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Submission Card */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
         <div className="absolute -right-16 -top-16 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
@@ -356,11 +553,189 @@ export default function DashboardPage() {
             })()}
           </div>
 
+          {/* Context Selector (Personal Context with Gemini Context Caching) */}
+          <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Database className="w-4 h-4 text-indigo-400" />
+                <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                  2. Contexto Personal de Usuario (Context Caching)
+                </label>
+              </div>
+              <span className="text-[11px] text-slate-500">
+                Privado y exclusivo para tu usuario
+              </span>
+            </div>
+
+            {/* Context Mode Tabs */}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setContextMode("none")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  contextMode === "none"
+                    ? "bg-indigo-600 text-white shadow"
+                    : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
+                }`}
+              >
+                Sin contexto
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setContextMode("existing");
+                  if (!selectedContextId && contexts.length > 0) {
+                    setSelectedContextId(contexts[0].id);
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
+                  contextMode === "existing"
+                    ? "bg-indigo-600 text-white shadow"
+                    : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Contexto guardado ({contexts.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setContextMode("new")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
+                  contextMode === "new"
+                    ? "bg-indigo-600 text-white shadow"
+                    : "bg-slate-900 text-slate-400 hover:text-white border border-slate-800"
+                }`}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Crear nuevo contexto</span>
+              </button>
+            </div>
+
+            {/* Mode: Existing Context */}
+            {contextMode === "existing" && (
+              <div className="space-y-3 pt-2">
+                {contexts.length === 0 ? (
+                  <div className="p-3 bg-slate-900 border border-slate-800 rounded-lg text-xs text-slate-400 flex items-center justify-between">
+                    <span>Aún no tienes ningún contexto personal guardado.</span>
+                    <button
+                      type="button"
+                      onClick={() => setContextMode("new")}
+                      className="text-indigo-400 hover:underline font-medium"
+                    >
+                      Crear el primero
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <select
+                      value={selectedContextId || ""}
+                      onChange={(e) => setSelectedContextId(Number(e.target.value))}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                    >
+                      {contexts.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.identifier}) — ~{c.estimated_tokens} tokens
+                        </option>
+                      ))}
+                    </select>
+
+                    {activeContext && (
+                      <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl flex items-start justify-between gap-3 text-xs">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-white">{activeContext.name}</span>
+                            <span className="text-[11px] font-mono text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                              {activeContext.identifier}
+                            </span>
+                            {activeContext.gemini_cache_name ? (
+                              <span className="text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                Gemini Cache Activo
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
+                                Inyección Estructurada
+                              </span>
+                            )}
+                          </div>
+                          {activeContext.description && (
+                            <p className="text-slate-400 text-[11px]">{activeContext.description}</p>
+                          )}
+                          <div className="text-[11px] text-slate-500 font-mono">
+                            Tamaño: {activeContext.character_count.toLocaleString()} caracteres (~{activeContext.estimated_tokens.toLocaleString()} tokens estimados)
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteContext(activeContext.id)}
+                          disabled={deletingContextId === activeContext.id}
+                          className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                          title="Eliminar este contexto"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Mode: New Context */}
+            {contextMode === "new" && (
+              <div className="space-y-3 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                      Identificador de Contexto (Slug) *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="ej: stack-frontend-react"
+                      value={newContextIdentifier}
+                      onChange={(e) => setNewContextIdentifier(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                      Nombre Descriptivo *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="ej: Convenciones y Arquitectura React"
+                      value={newContextName}
+                      onChange={(e) => setNewContextName(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                    Contenido del Contexto a Guardar y Reutilizar *
+                  </label>
+                  <textarea
+                    rows={4}
+                    placeholder="Escribe aquí las directivas técnicas, arquitectura, esquema de BD o convenciones que Gemini debe recordar para este contexto..."
+                    value={newContextText}
+                    onChange={(e) => setNewContextText(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-indigo-500 font-mono"
+                  />
+                  <div className="text-[11px] text-slate-500 mt-1 flex justify-between">
+                    <span>Tamaño: {newContextText.length} caracteres (~{Math.ceil(newContextText.length / 3.8)} tokens estimados)</span>
+                    <span>Se guardará en tu cuenta para reutilizar en futuros prompts</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Prompt Textarea */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                2. Instrucciones para la IA (Prompt de Modificación)
+                3. Instrucciones para la IA (Prompt de Modificación)
               </label>
               <span className="text-xs text-slate-400">
                 Puedes enviar múltiples prompts secuenciales
@@ -376,11 +751,37 @@ export default function DashboardPage() {
             />
           </div>
 
+          {/* Live Token Estimation Box */}
+          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-slate-300">
+                <Cpu className="w-4 h-4 text-indigo-400" />
+                <span className="font-semibold">Estimación de Tokens para esta petición:</span>
+              </div>
+              <div className="flex items-center gap-4 text-slate-400 font-mono text-[11px]">
+                <span>Prompt: ~{promptTokens} tokens</span>
+                {contextTokens > 0 && <span>Contexto: ~{contextTokens} tokens</span>}
+                <span className="font-bold text-white bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">
+                  Total: ~{totalEstimatedTokens} tokens
+                </span>
+              </div>
+            </div>
+
+            {willExceedQuota && (
+              <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span>
+                  Atención: Esta petición (~{totalEstimatedTokens} tokens) podría exceder tu cuota restante ({quota?.tokens_remaining.toLocaleString()} tokens) para la ventana actual de 5 horas.
+                </span>
+              </div>
+            )}
+          </div>
+
           {/* Action */}
           <div className="flex justify-end">
             <button
               type="submit"
-              disabled={submitting || targets.length === 0 || !promptText.trim()}
+              disabled={submitting || targets.length === 0 || !promptText.trim() || (quota?.is_exceeded ?? false)}
               className="bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium px-6 py-3 rounded-xl shadow-lg shadow-indigo-600/25 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting ? (
@@ -486,11 +887,25 @@ export default function DashboardPage() {
                       <p className="line-clamp-2 text-xs text-slate-300 font-mono">
                         {task.edited_prompt ? task.edited_prompt : task.original_prompt}
                       </p>
-                      {task.edited_prompt && (
-                        <span className="text-[10px] text-indigo-400 block mt-0.5">
-                          (Ajustado por validador)
-                        </span>
-                      )}
+                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                        {task.edited_prompt && (
+                          <span className="text-[10px] text-indigo-400">
+                            (Ajustado por validador)
+                          </span>
+                        )}
+                        {task.context_name && (
+                          <span className="inline-flex items-center gap-1 text-[10px] text-purple-300 bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20" title={`Contexto personal: ${task.context_name}`}>
+                            <Database className="w-2.5 h-2.5 text-purple-400" />
+                            {task.context_name}
+                          </span>
+                        )}
+                        {task.tokens_used ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-mono text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20" title="Tokens consumidos en esta tarea">
+                            <Coins className="w-2.5 h-2.5 text-indigo-400" />
+                            {task.tokens_used.toLocaleString()} tokens
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="py-3.5 px-4">
                       {getStatusBadge(task.status)}
@@ -720,6 +1135,91 @@ export default function DashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal: Quota Logs History */}
+      {showQuotaLogsModal && quota && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl relative space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2 text-white font-bold text-base">
+                <Coins className="w-5 h-5 text-indigo-400" />
+                <span>Historial de Costos de Tokens (Últimas Peticiones)</span>
+              </div>
+              <button
+                onClick={() => setShowQuotaLogsModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-400 flex flex-wrap items-center justify-between gap-2 p-3 bg-slate-950 rounded-xl border border-slate-800">
+              <div>
+                <span>Consumido en ventana actual ({quota.quota_window_hours}h): </span>
+                <strong className="text-white font-mono">{quota.tokens_used_in_window.toLocaleString()}</strong> / {quota.token_quota_limit.toLocaleString()} tokens
+              </div>
+              <div>
+                <span>Próximo reinicio: </span>
+                <strong className="text-indigo-400 font-mono">{formatTimeRemaining(quota.seconds_until_reset)}</strong>
+              </div>
+            </div>
+
+            {quota.recent_logs.length === 0 ? (
+              <div className="text-center py-8 border border-dashed border-slate-800 rounded-xl text-slate-400 text-xs">
+                No hay peticiones registradas en esta ventana de cuota todavía.
+              </div>
+            ) : (
+              <div className="overflow-x-auto max-h-80 border border-slate-800 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800 sticky top-0">
+                    <tr>
+                      <th className="py-2.5 px-3">Tarea</th>
+                      <th className="py-2.5 px-3">Tokens Prompt</th>
+                      <th className="py-2.5 px-3">Tokens Resp.</th>
+                      <th className="py-2.5 px-3">Caché</th>
+                      <th className="py-2.5 px-3 font-bold text-white">Total</th>
+                      <th className="py-2.5 px-3 text-right">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-mono">
+                    {quota.recent_logs.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-800/30 transition-colors">
+                        <td className="py-2 px-3 text-indigo-400">
+                          {log.task_id ? `#${log.task_id}` : "Directa"}
+                        </td>
+                        <td className="py-2 px-3 text-slate-300">
+                          {log.tokens_prompt.toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-slate-300">
+                          {log.tokens_completion.toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-emerald-400">
+                          {log.tokens_cached > 0 ? log.tokens_cached.toLocaleString() : "—"}
+                        </td>
+                        <td className="py-2 px-3 font-bold text-white">
+                          {log.tokens_total.toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-slate-500 text-right text-[11px] font-sans">
+                          {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowQuotaLogsModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition-all"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

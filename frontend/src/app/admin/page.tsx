@@ -4,7 +4,19 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
-import { apiRequest, User, Invitation, Project } from "@/lib/api";
+import { 
+  apiRequest, 
+  User, 
+  Invitation, 
+  Project, 
+  AdminUserQuota, 
+  UserContext, 
+  getAdminQuotas, 
+  updateAdminUserQuota, 
+  resetAdminUserQuota, 
+  getAdminContexts, 
+  deleteAdminContext 
+} from "@/lib/api";
 import { 
   ShieldAlert, 
   Users, 
@@ -27,16 +39,32 @@ import {
   Mail,
   Edit3,
   Power,
-  Search
+  Search,
+  Coins,
+  Database,
+  Layers,
+  Cpu,
+  X
 } from "lucide-react";
 
 export default function AdminPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<"users" | "invites" | "projects" | "gemini">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "invites" | "projects" | "gemini" | "quotas">("users");
   const [stats, setStats] = useState<any>(null);
   
+  // Quotas & Contexts state
+  const [quotasList, setQuotasList] = useState<AdminUserQuota[]>([]);
+  const [adminContextsList, setAdminContextsList] = useState<UserContext[]>([]);
+  const [editingQuotaUser, setEditingQuotaUser] = useState<AdminUserQuota | null>(null);
+  const [editQuotaLimit, setEditQuotaLimit] = useState<number>(100000);
+  const [editQuotaHours, setEditQuotaHours] = useState<number>(5);
+  const [savingQuota, setSavingQuota] = useState(false);
+  const [resettingQuotaId, setResettingQuotaId] = useState<number | null>(null);
+  const [deletingCtxId, setDeletingCtxId] = useState<number | null>(null);
+  const [quotaSearch, setQuotaSearch] = useState("");
+
   // Users state
   const [usersList, setUsersList] = useState<User[]>([]);
   // Invites state
@@ -92,12 +120,14 @@ export default function AdminPage() {
     if (!user || user.role !== "admin") return;
     setLoading(true);
     try {
-      const [statsData, usersData, invitesData, projsData, geminiData] = await Promise.all([
+      const [statsData, usersData, invitesData, projsData, geminiData, quotasData, contextsData] = await Promise.all([
         apiRequest<any>("/admin/stats"),
         apiRequest<User[]>("/admin/users"),
         apiRequest<Invitation[]>("/admin/invitations"),
         apiRequest<Project[]>("/projects"),
         apiRequest<any>("/admin/settings/gemini").catch(() => ({ configured: false, masked_key: "", model: "gemini-3.6-flash" })),
+        getAdminQuotas().catch(() => []),
+        getAdminContexts().catch(() => []),
       ]);
       setStats(statsData);
       setUsersList(usersData);
@@ -105,6 +135,8 @@ export default function AdminPage() {
       setProjectsList(projsData);
       setGeminiConfig(geminiData);
       setGeminiModelInput(geminiData.model || "gemini-3.6-flash");
+      setQuotasList(quotasData);
+      setAdminContextsList(contextsData);
     } catch (err: any) {
       console.error("Error cargando consola admin:", err);
     } finally {
@@ -117,6 +149,70 @@ export default function AdminPage() {
       loadAllData();
     }
   }, [user]);
+
+  // Quota & Context Actions
+  const handleStartEditQuota = (q: AdminUserQuota) => {
+    setEditingQuotaUser(q);
+    setEditQuotaLimit(q.token_quota_limit);
+    setEditQuotaHours(q.quota_window_hours);
+  };
+
+  const handleSaveQuota = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingQuotaUser) return;
+    setSavingQuota(true);
+    try {
+      await updateAdminUserQuota(editingQuotaUser.user_id, {
+        token_quota_limit: Number(editQuotaLimit),
+        quota_window_hours: Number(editQuotaHours),
+      });
+      setFeedback({ type: "success", text: `Cuota para ${editingQuotaUser.email} actualizada correctamente.` });
+      setEditingQuotaUser(null);
+      await loadAllData();
+    } catch (err: any) {
+      setFeedback({ type: "error", text: err.message || "Error al actualizar cuota." });
+    } finally {
+      setSavingQuota(false);
+    }
+  };
+
+  const handleResetQuota = async (userId: number, email: string) => {
+    if (!confirm(`¿Deseas reiniciar manualmente la ventana de cuota para ${email}? Los tokens usados volverán a 0 inmediatamente.`)) return;
+    setResettingQuotaId(userId);
+    try {
+      await resetAdminUserQuota(userId);
+      setFeedback({ type: "success", text: `Cuota para ${email} reiniciada a 0 exitosamente.` });
+      await loadAllData();
+    } catch (err: any) {
+      setFeedback({ type: "error", text: err.message || "Error al reiniciar cuota." });
+    } finally {
+      setResettingQuotaId(null);
+    }
+  };
+
+  const handleDeleteAdminContext = async (contextId: number, name: string) => {
+    if (!confirm(`¿Seguro que deseas eliminar el contexto "${name}" (ID #${contextId})? Esta acción no se puede deshacer.`)) return;
+    setDeletingCtxId(contextId);
+    try {
+      await deleteAdminContext(contextId);
+      setFeedback({ type: "success", text: `Contexto "${name}" eliminado exitosamente.` });
+      await loadAllData();
+    } catch (err: any) {
+      setFeedback({ type: "error", text: err.message || "Error al eliminar contexto." });
+    } finally {
+      setDeletingCtxId(null);
+    }
+  };
+
+  function formatTimeRemaining(seconds: number): string {
+    if (seconds <= 0) return "Listo para reiniciar";
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${secs}s`;
+    return `${secs}s`;
+  }
 
   // User Actions
   const handleToggleBan = async (u: User) => {
@@ -442,6 +538,18 @@ export default function AdminPage() {
         >
           <Sparkles className="w-4 h-4" />
           <span>Google Gemini AI</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("quotas")}
+          className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-all ${
+            activeTab === "quotas"
+              ? "border-purple-500 text-purple-400"
+              : "border-transparent text-slate-400 hover:text-white"
+          }`}
+        >
+          <Coins className="w-4 h-4" />
+          <span>Cuotas y Contextos</span>
         </button>
       </div>
 
@@ -1155,6 +1263,302 @@ export default function AdminPage() {
                     <CheckCircle2 className="w-3.5 h-3.5" />
                   )}
                   <span>Guardar Cambios</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 5: QUOTAS & CONTEXTS */}
+      {activeTab === "quotas" && (
+        <div className="space-y-8">
+          {/* Section 1: User Quotas */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <Coins className="w-5 h-5 text-indigo-400" />
+                  <span>Control de Cuotas de Tokens (Ventana de 5 Horas)</span>
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Límites de consumo para mitigar envíos masivos de prompts. Se decrementan con el uso real reportado por Gemini.
+                </p>
+              </div>
+
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-500 absolute left-3 top-2.5 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Buscar usuario o email..."
+                  value={quotaSearch}
+                  onChange={(e) => setQuotaSearch(e.target.value)}
+                  className="bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-purple-500 w-full sm:w-64"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                  <tr>
+                    <th className="py-3 px-4">Usuario</th>
+                    <th className="py-3 px-4">Límite</th>
+                    <th className="py-3 px-4">Consumido</th>
+                    <th className="py-3 px-4">Restante</th>
+                    <th className="py-3 px-4">Estado</th>
+                    <th className="py-3 px-4">Reinicio en</th>
+                    <th className="py-3 px-4 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {quotasList
+                    .filter(
+                      (q) =>
+                        !quotaSearch ||
+                        q.email.toLowerCase().includes(quotaSearch.toLowerCase()) ||
+                        q.name.toLowerCase().includes(quotaSearch.toLowerCase())
+                    )
+                    .map((q) => (
+                      <tr key={q.user_id} className="hover:bg-slate-800/30 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <div className="font-medium text-white">{q.name}</div>
+                          <div className="text-[11px] text-slate-400 font-mono">{q.email}</div>
+                          <span className="text-[10px] uppercase font-semibold text-slate-500">{q.role}</span>
+                        </td>
+                        <td className="py-3.5 px-4 font-mono font-semibold text-slate-200">
+                          {q.token_quota_limit.toLocaleString()}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-400">
+                          {q.tokens_used_in_window.toLocaleString()}
+                        </td>
+                        <td className="py-3.5 px-4 max-w-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-semibold text-white">
+                              {q.tokens_remaining.toLocaleString()}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              ({q.percentage_used}%)
+                            </span>
+                          </div>
+                          <div className="w-28 bg-slate-950 rounded-full h-1.5 mt-1.5 overflow-hidden border border-slate-800">
+                            <div
+                              className={`h-full rounded-full ${
+                                q.percentage_used >= 100
+                                  ? "bg-rose-500"
+                                  : q.percentage_used >= 80
+                                  ? "bg-amber-500"
+                                  : "bg-indigo-500"
+                              }`}
+                              style={{ width: `${Math.min(100, q.percentage_used)}%` }}
+                            />
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {q.is_exceeded ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                              Agotada (429)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              Disponible
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-400 text-[11px]">
+                          {formatTimeRemaining(q.seconds_until_reset)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => handleStartEditQuota(q)}
+                              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-colors"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => handleResetQuota(q.user_id, q.email)}
+                              disabled={resettingQuotaId === q.user_id}
+                              className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-medium border border-indigo-500/30 transition-colors disabled:opacity-50"
+                              title="Reiniciar consumo a 0 y resetear ventana"
+                            >
+                              {resettingQuotaId === q.user_id ? "Reiniciando..." : "Reiniciar"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Section 2: User Contexts */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Database className="w-5 h-5 text-indigo-400" />
+                <span>Contextos Personales de Usuarios</span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Vista de administración de todos los contextos creados por usuarios. Cada usuario sólo puede acceder a los suyos en su workspace.
+              </p>
+            </div>
+
+            {adminContextsList.length === 0 ? (
+              <div className="text-center py-10 border border-dashed border-slate-800 rounded-xl text-slate-400 text-xs">
+                No hay contextos personales registrados todavía en la plataforma.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="py-3 px-4">ID</th>
+                      <th className="py-3 px-4">Usuario ID</th>
+                      <th className="py-3 px-4">Identificador</th>
+                      <th className="py-3 px-4">Nombre y Descripción</th>
+                      <th className="py-3 px-4">Tamaño</th>
+                      <th className="py-3 px-4">Gemini Cache</th>
+                      <th className="py-3 px-4">Fecha</th>
+                      <th className="py-3 px-4 text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {adminContextsList.map((ctx) => (
+                      <tr key={ctx.id} className="hover:bg-slate-800/30 transition-colors">
+                        <td className="py-3.5 px-4 font-mono text-slate-400">#{ctx.id}</td>
+                        <td className="py-3.5 px-4 font-mono text-indigo-400">User #{ctx.user_id}</td>
+                        <td className="py-3.5 px-4">
+                          <span className="font-mono text-xs text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                            {ctx.identifier}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 max-w-xs">
+                          <div className="font-medium text-white">{ctx.name}</div>
+                          {ctx.description && (
+                            <div className="text-[11px] text-slate-400 truncate">{ctx.description}</div>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-slate-300">
+                          <div>{ctx.character_count.toLocaleString()} chars</div>
+                          <div className="text-[10px] text-slate-500">~{ctx.estimated_tokens.toLocaleString()} tokens</div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {ctx.gemini_cache_name ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-mono">
+                              Cached
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-500">Inyección estándar</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-500 text-[11px]">
+                          {new Date(ctx.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            onClick={() => handleDeleteAdminContext(ctx.id, ctx.name)}
+                            disabled={deletingCtxId === ctx.id}
+                            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+                            title="Eliminar contexto"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Quota Modal */}
+      {editingQuotaUser && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2 text-white font-bold text-base">
+                <Coins className="w-5 h-5 text-indigo-400" />
+                <span>Ajustar Cuota de Tokens</span>
+              </div>
+              <button
+                onClick={() => setEditingQuotaUser(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs">
+              <div className="text-white font-semibold">{editingQuotaUser.name}</div>
+              <div className="text-slate-400 font-mono">{editingQuotaUser.email}</div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                Actualmente usados: {editingQuotaUser.tokens_used_in_window.toLocaleString()} tokens
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveQuota} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1 uppercase tracking-wider">
+                  Límite de Tokens por Ventana *
+                </label>
+                <input
+                  type="number"
+                  min={1000}
+                  step={1000}
+                  required
+                  value={editQuotaLimit}
+                  onChange={(e) => setEditQuotaLimit(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Por defecto son 100,000 tokens cada 5 horas.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1 uppercase tracking-wider">
+                  Duración de la Ventana (Horas) *
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={72}
+                  required
+                  value={editQuotaHours}
+                  onChange={(e) => setEditQuotaHours(Number(e.target.value))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingQuotaUser(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-all"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingQuota}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-indigo-600/20 disabled:opacity-50 transition-all cursor-pointer"
+                >
+                  {savingQuota ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Guardar Cuota</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

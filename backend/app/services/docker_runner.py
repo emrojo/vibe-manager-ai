@@ -34,7 +34,9 @@ async def execute_task_sandbox(
     gemini_model: Optional[str] = None,
     mode: str = "EXECUTE",
     plan_content: Optional[str] = None,
-    plan_feedback: Optional[str] = None
+    plan_feedback: Optional[str] = None,
+    context_text: Optional[str] = None,
+    cached_content_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Executes the task inside an isolated Docker sandbox container.
@@ -58,6 +60,8 @@ async def execute_task_sandbox(
         "mode": mode,
         "plan_content": plan_content or "",
         "plan_feedback": plan_feedback or "",
+        "context_text": context_text or "",
+        "cached_content_name": cached_content_name or "",
         "repo_url": repo_url,
         "github_token": resolved_github_token,
         "default_branch": default_branch or "main",

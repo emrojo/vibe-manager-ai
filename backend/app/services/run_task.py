@@ -145,7 +145,9 @@ def call_gemini_plan(
     file_tree: Optional[List[str]] = None,
     rules: Optional[str] = None,
     previous_plan: Optional[str] = None,
-    modification_feedback: Optional[str] = None
+    modification_feedback: Optional[str] = None,
+    context_text: Optional[str] = None,
+    cached_content_name: Optional[str] = None
 ) -> Dict[str, Any]:
     if not api_key:
         log("No GEMINI_API_KEY provided. Using automated plan template.")
@@ -153,13 +155,24 @@ def call_gemini_plan(
         if modification_feedback:
             summary += f" (Revisión: {modification_feedback[:40]}...)"
         feedback_note = f"\n\n**Ajustes del validador:**\n{modification_feedback}" if modification_feedback else ""
+        est_tokens = max(10, (len(prompt) + len(summary) + len(context_text or "")) // 4)
         return {
             "summary": summary,
             "affected_files": ["VIBE_CHANGES.md"],
-            "plan_markdown": f"# Plan de Implementación: {project_name}\n\n**Objetivo:**\n{prompt}{feedback_note}\n\n### Acciones previstas:\n- Crear o modificar `VIBE_CHANGES.md` con los requisitos solicitados.\n- Incorporar correcciones indicadas por el validador.\n- Verificar consistencia de código."
+            "plan_markdown": f"# Plan de Implementación: {project_name}\n\n**Objetivo:**\n{prompt}{feedback_note}\n\n### Acciones previstas:\n- Crear o modificar `VIBE_CHANGES.md` con los requisitos solicitados.\n- Incorporar correcciones indicadas por el validador.\n- Verificar consistencia de código.",
+            "usage_metadata": {
+                "prompt_tokens": max(5, (len(prompt) + len(context_text or "")) // 4),
+                "completion_tokens": max(5, len(summary) // 4),
+                "total_tokens": est_tokens,
+                "cached_tokens": 0
+            }
         }
 
-    user_text = f"Proyecto: {project_name}\n"
+    user_text = ""
+    if context_text and not cached_content_name:
+        user_text += f"Contexto de usuario persistido / Directivas de trabajo del usuario:\n<user_context>\n{context_text}\n</user_context>\n\n"
+
+    user_text += f"Proyecto: {project_name}\n"
     if rules:
         user_text += f"Reglas del proyecto:\n{rules}\n\n"
     if file_tree:
@@ -211,6 +224,8 @@ def call_gemini_plan(
             "responseSchema": PLAN_SCHEMA
         }
     }
+    if cached_content_name:
+        payload["cachedContent"] = cached_content_name
 
     models_to_try = [model]
     for fallback in ["gemini-3.6-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
@@ -223,6 +238,14 @@ def call_gemini_plan(
             endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
             log(f"Invocando Google Gemini ({current_model}) para elaborar Plan...")
             res = client.post(endpoint, json=payload)
+            if res.status_code in (400, 404) and "cachedContent" in payload:
+                log("Aviso: Falló invocación con cachedContent. Reintentando sin cache y adjuntando contexto directamente...")
+                del payload["cachedContent"]
+                if context_text and "<user_context>" not in user_text:
+                    user_text = f"Contexto de usuario persistido / Directivas:\n<user_context>\n{context_text}\n</user_context>\n\n" + user_text
+                    payload["contents"][0]["parts"][0]["text"] = user_text
+                res = client.post(endpoint, json=payload)
+
             if res.status_code == 400 and "responseSchema" in payload.get("generationConfig", {}):
                 # Fallback attempt without responseSchema if model endpoint rejects schema syntax
                 fb_payload = dict(payload)
@@ -238,7 +261,18 @@ def call_gemini_plan(
                 if raw_text.startswith("```"):
                     raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
                     raw_text = re.sub(r"\s*```$", "", raw_text)
-                return json.loads(raw_text)
+                parsed = json.loads(raw_text)
+                usage_meta = data.get("usageMetadata", {})
+                usage_info = {
+                    "prompt_tokens": usage_meta.get("promptTokenCount", 0),
+                    "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
+                    "total_tokens": usage_meta.get("totalTokenCount", 0),
+                    "cached_tokens": usage_meta.get("cachedContentTokenCount", 0)
+                }
+                if not usage_info["total_tokens"]:
+                    usage_info["total_tokens"] = usage_info["prompt_tokens"] + usage_info["completion_tokens"]
+                parsed["usage_metadata"] = usage_info
+                return parsed
 
             error_text = res.text
             log(f"Aviso: Modelo {current_model} devolvió ({res.status_code}): {error_text}")
@@ -257,24 +291,38 @@ def call_gemini(
     model: str = "gemini-3.6-flash",
     file_tree: Optional[List[str]] = None,
     rules: Optional[str] = None,
-    plan: Optional[str] = None
+    plan: Optional[str] = None,
+    context_text: Optional[str] = None,
+    cached_content_name: Optional[str] = None
 ) -> Dict[str, Any]:
     if not api_key:
         log("No GEMINI_API_KEY provided. Using default automated modification template.")
+        pr_body = f"## Modificaciones automáticas de Vibe Manager AI\n\n**Prompt:**\n> {prompt}"
+        est_tokens = max(10, (len(prompt) + len(pr_body) + len(context_text or "")) // 4)
         return {
             "commit_message": f"feat: apply prompt changes for {project_name}",
             "pr_title": f"Vibe Task: Actualización de código",
-            "pr_body": f"## Modificaciones automáticas de Vibe Manager AI\n\n**Prompt:**\n> {prompt}",
+            "pr_body": pr_body,
             "changes": [
                 {
                     "path": "VIBE_CHANGES.md",
                     "action": "CREATE",
                     "content": f"# Modificaciones aplicadas por Vibe Manager AI\n\nPrompt: {prompt}\n"
                 }
-            ]
+            ],
+            "usage_metadata": {
+                "prompt_tokens": max(5, (len(prompt) + len(context_text or "")) // 4),
+                "completion_tokens": max(5, len(pr_body) // 4),
+                "total_tokens": est_tokens,
+                "cached_tokens": 0
+            }
         }
 
-    user_text = f"Proyecto: {project_name}\n"
+    user_text = ""
+    if context_text and not cached_content_name:
+        user_text += f"Contexto de usuario persistido / Directivas de trabajo del usuario:\n<user_context>\n{context_text}\n</user_context>\n\n"
+
+    user_text += f"Proyecto: {project_name}\n"
     if rules:
         user_text += f"Reglas del proyecto:\n{rules}\n\n"
     if plan:
@@ -304,6 +352,8 @@ def call_gemini(
             "responseSchema": EXECUTE_SCHEMA
         }
     }
+    if cached_content_name:
+        payload["cachedContent"] = cached_content_name
 
     # Fallback chain in case a model is restricted or deprecated for the account
     models_to_try = [model]
@@ -317,6 +367,14 @@ def call_gemini(
             endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
             log(f"Invocando Google Gemini API con modelo: {current_model}...")
             res = client.post(endpoint, json=payload)
+            if res.status_code in (400, 404) and "cachedContent" in payload:
+                log("Aviso: Falló invocación con cachedContent. Reintentando sin cache y adjuntando contexto directamente...")
+                del payload["cachedContent"]
+                if context_text and "<user_context>" not in user_text:
+                    user_text = f"Contexto de usuario persistido / Directivas:\n<user_context>\n{context_text}\n</user_context>\n\n" + user_text
+                    payload["contents"][0]["parts"][0]["text"] = user_text
+                res = client.post(endpoint, json=payload)
+
             if res.status_code == 400 and "responseSchema" in payload.get("generationConfig", {}):
                 fb_payload = dict(payload)
                 fb_payload["generationConfig"] = {
@@ -331,7 +389,18 @@ def call_gemini(
                 if raw_text.startswith("```"):
                     raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
                     raw_text = re.sub(r"\s*```$", "", raw_text)
-                return json.loads(raw_text)
+                parsed = json.loads(raw_text)
+                usage_meta = data.get("usageMetadata", {})
+                usage_info = {
+                    "prompt_tokens": usage_meta.get("promptTokenCount", 0),
+                    "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
+                    "total_tokens": usage_meta.get("totalTokenCount", 0),
+                    "cached_tokens": usage_meta.get("cachedContentTokenCount", 0)
+                }
+                if not usage_info["total_tokens"]:
+                    usage_info["total_tokens"] = usage_info["prompt_tokens"] + usage_info["completion_tokens"]
+                parsed["usage_metadata"] = usage_info
+                return parsed
 
             error_text = res.text
             log(f"Aviso: El modelo {current_model} devolvió ({res.status_code}): {error_text}")
@@ -364,7 +433,7 @@ def main():
         try:
             task_data = json.loads(task_data_env)
         except Exception as e:
-            log(f"Error decodificando TASK_DATA: {e}")
+            log(f"Error parseando TASK_DATA: {e}")
     elif os.path.exists(task_file):
         try:
             with open(task_file, "r", encoding="utf-8") as f:
@@ -372,11 +441,11 @@ def main():
         except Exception as e:
             log(f"Error leyendo {task_file}: {e}")
 
+    task_id = task_data.get("task_id") or os.getenv("TASK_ID", "0")
     repo_url = task_data.get("repo_url") or os.getenv("REPO_URL", "")
-    github_token = task_data.get("github_token") or os.getenv("GITHUB_TOKEN", "")
     default_branch = task_data.get("default_branch") or os.getenv("DEFAULT_BRANCH", "main")
     prompt = task_data.get("prompt") or os.getenv("PROMPT", "")
-    task_id = task_data.get("task_id") or os.getenv("TASK_ID", secrets.token_hex(4))
+    github_token = task_data.get("github_token") or os.getenv("GITHUB_TOKEN", "")
     gemini_api_key = task_data.get("gemini_api_key") or os.getenv("GEMINI_API_KEY", "")
     gemini_model = task_data.get("gemini_model") or os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
     project_rules = task_data.get("project_rules") or os.getenv("PROJECT_RULES", "")
@@ -384,6 +453,8 @@ def main():
     mode = (task_data.get("mode") or os.getenv("MODE", "EXECUTE")).upper()
     plan_content_input = task_data.get("plan_content") or os.getenv("PLAN_CONTENT", "")
     plan_feedback_input = task_data.get("plan_feedback") or os.getenv("PLAN_FEEDBACK", "")
+    context_text_input = task_data.get("context_text") or os.getenv("CONTEXT_TEXT", "")
+    cached_content_name_input = task_data.get("cached_content_name") or os.getenv("CACHED_CONTENT_NAME", "")
 
     if github_token:
         active_secrets.append(github_token)
@@ -403,6 +474,8 @@ def main():
         "commit_message": None,
         "pr_url": None,
         "pr_number": None,
+        "tokens_used": 0,
+        "usage_metadata": None,
         "error": None
     }
 
@@ -457,11 +530,15 @@ def main():
                 file_tree=file_tree,
                 rules=project_rules,
                 previous_plan=plan_content_input,
-                modification_feedback=plan_feedback_input
+                modification_feedback=plan_feedback_input,
+                context_text=context_text_input,
+                cached_content_name=cached_content_name_input
             )
             result["summary"] = plan_res.get("summary")
             result["affected_files"] = plan_res.get("affected_files", [])
             result["plan_markdown"] = plan_res.get("plan_markdown")
+            result["usage_metadata"] = plan_res.get("usage_metadata")
+            result["tokens_used"] = (plan_res.get("usage_metadata") or {}).get("total_tokens", 0)
             result["success"] = True
             log("Plan de implementación generado y registrado exitosamente.")
         else:
@@ -480,9 +557,13 @@ def main():
                 model=gemini_model,
                 file_tree=file_tree,
                 rules=project_rules,
-                plan=plan_content_input
+                plan=plan_content_input,
+                context_text=context_text_input,
+                cached_content_name=cached_content_name_input
             )
 
+            result["usage_metadata"] = plan.get("usage_metadata")
+            result["tokens_used"] = (plan.get("usage_metadata") or {}).get("total_tokens", 0)
             commit_msg = plan.get("commit_message") or f"feat: apply vibe prompt task #{task_id}"
             pr_title = plan.get("pr_title") or f"Vibe Task #{task_id}"
             pr_body = plan.get("pr_body") or f"Modificaciones automáticas para la tarea #{task_id}\n\nPrompt:\n{prompt}"
