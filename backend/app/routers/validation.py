@@ -327,8 +327,10 @@ async def list_validation_contexts(
             )
         )
 
-    if status_filter:
-        query = query.where(UserContext.status == status_filter)
+    if status_filter and status_filter.upper() != "ALL":
+        query = query.where(UserContext.status == status_filter.upper())
+    elif status_filter and status_filter.upper() == "ALL":
+        pass  # Return all contexts without status restriction
     else:
         # Default: show active validation contexts
         query = query.where(UserContext.status.in_(["PENDING", "APPROVED", "PLAN_PENDING"]))

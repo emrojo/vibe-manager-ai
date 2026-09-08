@@ -47,7 +47,8 @@ import {
   History,
   Trash2,
   HelpCircle,
-  Check
+  Check,
+  CheckSquare
 } from "lucide-react";
 import LiveConsoleModal from "@/components/LiveConsoleModal";
 import UserPlanModal from "@/components/UserPlanModal";
@@ -173,6 +174,33 @@ export default function DashboardPage() {
     }
   }, [user]);
 
+  // Pre-select accepted context if navigated from Contexts page with ?context=@identifier or ?contextId=123
+  useEffect(() => {
+    if (typeof window !== "undefined" && contexts.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const ctxParam = params.get("context");
+      const ctxIdParam = params.get("contextId");
+      if (ctxParam) {
+        const clean = ctxParam.replace(/^@/, "").toLowerCase();
+        const found = contexts.find(
+          (c) => c.identifier.toLowerCase() === clean || c.id.toString() === clean
+        );
+        if (found) {
+          setContextMode("existing");
+          setSelectedContextId(found.id);
+          setPipelineFilter("create");
+        }
+      } else if (ctxIdParam) {
+        const found = contexts.find((c) => c.id.toString() === ctxIdParam);
+        if (found) {
+          setContextMode("existing");
+          setSelectedContextId(found.id);
+          setPipelineFilter("create");
+        }
+      }
+    }
+  }, [contexts]);
+
   // Real-time countdown ticker for quota window reset
   useEffect(() => {
     const timer = setInterval(() => {
@@ -277,6 +305,7 @@ export default function DashboardPage() {
       setPromptText("");
       setChainTemporalContext(false);
       setSelectedTemporalTaskId(null);
+      setPipelineFilter(isValidator ? "validate_prompt" : "waiting_prompt_val");
       await Promise.all([loadPrompts(), loadQuota(), loadContexts(), loadTemporalTasks()]);
     } catch (err: any) {
       setMessage({
@@ -538,11 +567,71 @@ export default function DashboardPage() {
         }}
       />
 
-      {/* Submission Card */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-        <div className="absolute -right-16 -top-16 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
+      {/* Shortcut bar when user is looking at Step 2, 3 or 4 */}
+      {pipelineFilter !== "create" && pipelineFilter !== "ALL" && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+              <Send className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                  PASO 1
+                </span>
+                <h4 className="text-xs sm:text-sm font-bold text-white">¿Deseas enviar una nueva instrucción al repositorio?</h4>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">Haz clic para abrir el formulario del Paso 1 y componer un nuevo prompt.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPipelineFilter("create")}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-medium text-xs shadow-md shadow-indigo-600/20 transition-all flex items-center gap-1.5 shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Paso 1: Redactar Prompt</span>
+          </button>
+        </div>
+      )}
 
-        <form onSubmit={handleSubmitPrompt} className="space-y-6">
+      {/* Submission Card (Paso 1) */}
+      {(pipelineFilter === "create" || pipelineFilter === "ALL") && (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+          <div className="absolute -right-16 -top-16 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
+
+          {/* Step 1 Explicit Header */}
+          <div className="flex flex-wrap items-center justify-between pb-4 mb-5 border-b border-slate-800 gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+                <Send className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                    PASO 1
+                  </span>
+                  <h2 className="text-base font-bold text-white">
+                    {t("workflow.step_prompt_create", "Creación de Prompt")}
+                  </h2>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {t("workflow.step_prompt_create_desc", "Redacta tu instrucción y selecciona el repositorio")}
+                </p>
+              </div>
+            </div>
+            {pipelineFilter === "create" && (
+              <button
+                type="button"
+                onClick={() => setPipelineFilter("ALL")}
+                className="text-xs text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 transition-colors"
+              >
+                {t("workflow.filter_all", "Todas las etapas")}
+              </button>
+            )}
+          </div>
+
+          <form onSubmit={handleSubmitPrompt} className="space-y-6">
           {message && (
             <div
               className={`p-4 rounded-xl border text-sm flex items-start gap-3 ${
@@ -876,17 +965,63 @@ export default function DashboardPage() {
           </div>
         </form>
       </div>
+      )}
 
-      {/* History Table */}
+      {/* History & Active Workflow Step Panel */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Clock className="w-5 h-5 text-indigo-400" />
-              {t("dashboard.history_title")}
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {t("dashboard.history_subtitle")}
+            <div className="flex items-center gap-2">
+              {pipelineFilter === "waiting_prompt_val" || pipelineFilter === "validate_prompt" || pipelineFilter === "PENDING" ? (
+                <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  PASO 2
+                </span>
+              ) : pipelineFilter === "waiting_plan_val" || pipelineFilter === "validate_plan" || pipelineFilter === "plan" ? (
+                <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                  PASO 3
+                </span>
+              ) : pipelineFilter === "prs" ? (
+                <span className="text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                  PASO 4
+                </span>
+              ) : null}
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                {pipelineFilter === "waiting_prompt_val" || pipelineFilter === "validate_prompt" || pipelineFilter === "PENDING" ? (
+                  <>
+                    <Clock className="w-5 h-5 text-amber-400" />
+                    <span>{isValidator ? "Paso 2: Validación de Prompts" : "Paso 2: Prompts en Espera de Validación"}</span>
+                  </>
+                ) : pipelineFilter === "waiting_plan_val" || pipelineFilter === "validate_plan" || pipelineFilter === "plan" ? (
+                  <>
+                    <FileCode2 className="w-5 h-5 text-purple-400" />
+                    <span>{isValidator ? "Paso 3: Validación de Planes Técnicos" : "Paso 3: Planes de Trabajo (En Espera)"}</span>
+                  </>
+                ) : pipelineFilter === "prs" ? (
+                  <>
+                    <GitPullRequest className="w-5 h-5 text-emerald-400" />
+                    <span>Paso 4: Tareas en Ejecución y Pull Requests Listos</span>
+                  </>
+                ) : pipelineFilter === "create" ? (
+                  <>
+                    <Clock className="w-5 h-5 text-indigo-400" />
+                    <span>Tus Prompts Recientes</span>
+                  </>
+                ) : (
+                  <>
+                    <Clock className="w-5 h-5 text-indigo-400" />
+                    <span>{t("dashboard.history_title")}</span>
+                  </>
+                )}
+              </h2>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              {pipelineFilter === "waiting_prompt_val" || pipelineFilter === "validate_prompt" || pipelineFilter === "PENDING"
+                ? "Revisión técnica y autorización antes de generar el plan de cambios"
+                : pipelineFilter === "waiting_plan_val" || pipelineFilter === "validate_plan" || pipelineFilter === "plan"
+                ? "Planes de trabajo estructurados por Gemini a la espera de autorización técnica"
+                : pipelineFilter === "prs"
+                ? "Supervisión de ejecución en Docker y acceso a los Pull Requests creados en GitHub"
+                : t("dashboard.history_subtitle")}
             </p>
           </div>
 
@@ -909,47 +1044,36 @@ export default function DashboardPage() {
               <button
                 type="button"
                 onClick={() => {
-                  setPipelineFilter("PENDING");
+                  setPipelineFilter(isValidator ? "validate_prompt" : "waiting_prompt_val");
                   setFilterPlanOnly(false);
                 }}
                 className={`px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
-                  pipelineFilter === "PENDING"
+                  pipelineFilter === "PENDING" || pipelineFilter === "validate_prompt" || pipelineFilter === "waiting_prompt_val"
                     ? "bg-amber-600 text-white shadow-sm"
                     : "text-slate-400 hover:text-white"
                 }`}
               >
                 <Clock className="w-3.5 h-3.5" />
-                <span>{t("workflow.filter_pending_prompts", "1. En Revisión de Prompt")} ({myPrompts.filter((p) => p.status === "PENDING").length})</span>
+                <span>
+                  {isValidator ? "2. Validación Prompts" : "2. En Espera"} ({myPrompts.filter((p) => p.status === "PENDING").length})
+                </span>
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setPipelineFilter("plan");
+                  setPipelineFilter(isValidator ? "validate_plan" : "waiting_plan_val");
                   setFilterPlanOnly(true);
                 }}
                 className={`px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
-                  pipelineFilter === "plan" || filterPlanOnly
+                  pipelineFilter === "plan" || pipelineFilter === "validate_plan" || pipelineFilter === "waiting_plan_val" || filterPlanOnly
                     ? "bg-purple-600 text-white shadow-sm"
                     : "text-slate-400 hover:text-white"
                 }`}
               >
                 <FileCode2 className="w-3.5 h-3.5" />
-                <span>{t("workflow.filter_plans", "2. Planes de Trabajo")} ({myPrompts.filter((p) => p.plan_content || p.status === "PLAN_PENDING" || p.status === "PLAN_APPROVED").length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setPipelineFilter("running");
-                  setFilterPlanOnly(false);
-                }}
-                className={`px-3 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
-                  pipelineFilter === "running"
-                    ? "bg-indigo-600 text-white shadow-sm"
-                    : "text-slate-400 hover:text-white"
-                }`}
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>{t("workflow.filter_running", "3. En Ejecución (Docker)")} ({myPrompts.filter((p) => p.status === "RUNNING").length})</span>
+                <span>
+                  {isValidator ? "3. Validación Planes" : "3. Planes"} ({myPrompts.filter((p) => p.plan_content || p.status === "PLAN_PENDING" || p.status === "PLAN_APPROVED").length})
+                </span>
               </button>
               <button
                 type="button"
@@ -964,7 +1088,9 @@ export default function DashboardPage() {
                 }`}
               >
                 <GitPullRequest className="w-3.5 h-3.5" />
-                <span>{t("workflow.filter_completed_prs", "Pull Requests Listos")} ({myPrompts.filter((p) => p.status === "COMPLETED" || Boolean(p.pr_url)).length})</span>
+                <span>
+                  4. PRs & Runners ({myPrompts.filter((p) => p.status === "COMPLETED" || p.status === "RUNNING" || Boolean(p.pr_url)).length})
+                </span>
               </button>
             </div>
 
@@ -979,6 +1105,75 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Step Informative Guidance Banners */}
+        {(pipelineFilter === "waiting_prompt_val" || pipelineFilter === "validate_prompt" || pipelineFilter === "PENDING") && (
+          <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs sm:text-sm text-slate-300">
+            <div className="flex items-start gap-3">
+              <Clock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-amber-300">
+                  {isValidator ? "Supervisión de Prompts Entrantes:" : "Estado: En Espera de Validación por el Validador"}
+                </span>
+                <p className="mt-0.5 text-slate-300 text-xs leading-relaxed">
+                  {isValidator
+                    ? "Como validador, aquí supervisas los prompts enviados por los usuarios. Revisa y autoriza las solicitudes para que Gemini comience la generación del plan técnico."
+                    : "Tus prompts han sido enviados y están en cola de revisión por el validador del repositorio asignado. No se requiere ninguna acción adicional por tu parte; el validador revisará la coherencia técnica y autorizará la generación del plan de trabajo con Gemini."}
+                </p>
+              </div>
+            </div>
+            {isValidator && (
+              <Link
+                href="/validator?section=prompts"
+                className="shrink-0 px-3.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all self-start sm:self-auto"
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                <span>Consola de Validación →</span>
+              </Link>
+            )}
+          </div>
+        )}
+
+        {(pipelineFilter === "waiting_plan_val" || pipelineFilter === "validate_plan" || pipelineFilter === "plan") && (
+          <div className="mb-6 p-4 rounded-xl bg-purple-500/10 border border-purple-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs sm:text-sm text-slate-300">
+            <div className="flex items-start gap-3">
+              <FileCode2 className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-purple-300">
+                  {isValidator ? "Validación Técnica de Planes Generados:" : "Estado: Planes Técnicos Generados por Gemini"}
+                </span>
+                <p className="mt-0.5 text-slate-300 text-xs leading-relaxed">
+                  {isValidator
+                    ? "Planes de trabajo generados por Gemini para las tareas autorizadas. Revisa los archivos y directivas que se modificarán antes de autorizar su ejecución en Docker."
+                    : "Gemini ha estructurado el plan técnico de cambios para tus prompts. Pulsa 'Ver Plan' para inspeccionar los archivos modificados mientras el validador autoriza su ejecución en el sandbox."}
+                </p>
+              </div>
+            </div>
+            {isValidator && (
+              <Link
+                href="/validator?section=plans"
+                className="shrink-0 px-3.5 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all self-start sm:self-auto"
+              >
+                <FileCode2 className="w-3.5 h-3.5" />
+                <span>Validar Planes en Consola →</span>
+              </Link>
+            )}
+          </div>
+        )}
+
+        {pipelineFilter === "prs" && (
+          <div className="mb-6 p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 flex items-start gap-3 text-xs sm:text-sm text-slate-300">
+            <GitPullRequest className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold text-emerald-300">
+                Paso 4: Ejecución en Docker Sandbox y Pull Requests en GitHub
+              </span>
+              <p className="mt-0.5 text-slate-300 text-xs leading-relaxed">
+                Supervisa aquí las tareas en ejecución en tiempo real desde la consola en vivo y accede a las ramas y Pull Requests listos para mergear en GitHub.
+              </p>
+            </div>
+          </div>
+        )}
+
         {myPrompts.length === 0 ? (
           <div className="text-center py-12 border border-dashed border-slate-800 rounded-xl">
             <Sparkles className="w-8 h-8 text-slate-600 mx-auto mb-2" />
@@ -987,8 +1182,11 @@ export default function DashboardPage() {
           </div>
         ) : (() => {
           const filteredPrompts = myPrompts.filter((task) => {
-            if (pipelineFilter === "PENDING" || pipelineFilter === "validate_prompt") return task.status === "PENDING";
-            if (pipelineFilter === "plan" || pipelineFilter === "validate_plan") {
+            if (pipelineFilter === "create") return true;
+            if (pipelineFilter === "PENDING" || pipelineFilter === "validate_prompt" || pipelineFilter === "waiting_prompt_val") {
+              return task.status === "PENDING";
+            }
+            if (pipelineFilter === "plan" || pipelineFilter === "validate_plan" || pipelineFilter === "waiting_plan_val") {
               return (
                 task.status === "PLAN_PENDING" ||
                 task.status === "PLAN_APPROVED" ||
@@ -997,7 +1195,7 @@ export default function DashboardPage() {
               );
             }
             if (pipelineFilter === "running") return task.status === "RUNNING";
-            if (pipelineFilter === "prs") return task.status === "COMPLETED" || Boolean(task.pr_url);
+            if (pipelineFilter === "prs") return task.status === "COMPLETED" || task.status === "RUNNING" || Boolean(task.pr_url);
             if (filterPlanOnly) {
               return task.plan_content || task.status === "PLAN_PENDING" || task.status === "PLAN_APPROVED";
             }

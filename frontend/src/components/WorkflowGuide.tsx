@@ -13,10 +13,9 @@ import {
   Clock, 
   RefreshCw, 
   Boxes, 
-  ArrowRight,
-  ShieldCheck,
-  Cpu,
+  ShieldCheck, 
   Bot,
+  Layers,
   ChevronRight
 } from "lucide-react";
 
@@ -59,31 +58,40 @@ export default function WorkflowGuide({
   const getSteps = (): WorkflowStep[] => {
     if (flowType === "prompts") {
       if (!isValidator) {
-        // Standard User (3 Steps)
+        // Standard User (4 sequential guided steps with explicit waiting phases)
         return [
           {
             key: "create",
             number: 1,
-            title: t("workflow.step_prompt_create", "1. Creación de Prompt"),
+            title: t("workflow.step_prompt_create", "Creación de Prompt"),
             description: t("workflow.step_prompt_create_desc", "Redacta tu instrucción y selecciona el repositorio"),
             icon: Send,
           },
           {
-            key: "plan",
+            key: "waiting_prompt_val",
             number: 2,
-            title: t("workflow.step_prompt_view_plan", "2. Plan de Trabajo Intermedio"),
-            description: t("workflow.step_prompt_view_plan_desc", "Visualiza el plan generado y su estado de ejecución"),
+            title: t("workflow.step_waiting_val", "En Espera de Validación"),
+            description: t("workflow.step_waiting_val_desc", "El prompt está pendiente de revisión por el validador del repositorio"),
+            icon: Clock,
+            badgeCount: counts.pendingPrompts,
+            badgeVariant: "amber",
+          },
+          {
+            key: "waiting_plan_val",
+            number: 3,
+            title: t("workflow.step_waiting_plan_val", "Plan de Trabajo (En Espera)"),
+            description: t("workflow.step_waiting_plan_val_desc", "Plan generado por Gemini. En espera de autorización para ejecutar"),
             icon: FileCode2,
-            badgeCount: (counts.pendingPlans || 0) + (counts.running || 0),
+            badgeCount: counts.pendingPlans,
             badgeVariant: "purple",
           },
           {
             key: "prs",
-            number: 3,
-            title: t("workflow.step_prompt_prs", "3. Pull Request Generado"),
-            description: t("workflow.step_prompt_prs_desc", "Revisa el código final y ramas en GitHub"),
+            number: 4,
+            title: t("workflow.step_prompt_prs", "Pull Request Generado"),
+            description: t("workflow.step_prompt_prs_desc", "Ejecución en Docker completada y PR listo en GitHub"),
             icon: GitPullRequest,
-            badgeCount: counts.completedPRs,
+            badgeCount: (counts.running || 0) + (counts.completedPRs || 0),
             badgeVariant: "emerald",
             href: "/pull-requests",
           },
@@ -94,15 +102,15 @@ export default function WorkflowGuide({
           {
             key: "create",
             number: 1,
-            title: t("workflow.step_val_create", "1. Creación de Prompt"),
-            description: t("workflow.step_val_create_desc", "Envío de instrucción o propuesta"),
+            title: t("workflow.step_val_create", "Creación de Prompt"),
+            description: t("workflow.step_val_create_desc", "Envío de instrucción o propuesta al sistema"),
             icon: Send,
           },
           {
             key: "validate_prompt",
             number: 2,
-            title: t("workflow.step_val_validate_prompt", "2. Validación de Prompt"),
-            description: t("workflow.step_val_validate_prompt_desc", "Revisa, edita y autoriza el prompt entrante"),
+            title: t("workflow.step_val_validate_prompt", "Validación de Prompts"),
+            description: t("workflow.step_val_validate_prompt_desc", "Revisa, edita directivas y autoriza el prompt entrante"),
             icon: CheckSquare,
             badgeCount: counts.pendingPrompts,
             badgeVariant: "amber",
@@ -111,8 +119,8 @@ export default function WorkflowGuide({
           {
             key: "validate_plan",
             number: 3,
-            title: t("workflow.step_val_validate_plan", "3. Validación de Plan"),
-            description: t("workflow.step_val_validate_plan_desc", "Aprueba el plan técnico generado por Gemini"),
+            title: t("workflow.step_val_validate_plan", "Validación de Planes"),
+            description: t("workflow.step_val_validate_plan_desc", "Aprueba o ajusta el plan técnico estructurado por Gemini"),
             icon: FileCode2,
             badgeCount: counts.pendingPlans,
             badgeVariant: "purple",
@@ -121,10 +129,10 @@ export default function WorkflowGuide({
           {
             key: "prs",
             number: 4,
-            title: t("workflow.step_val_prs", "4. Pull Requests"),
-            description: t("workflow.step_val_prs_desc", "Seguimiento de ramas y PRs creados"),
+            title: t("workflow.step_val_prs", "Pull Requests y Runners"),
+            description: t("workflow.step_val_prs_desc", "Supervisión de ejecución en Docker y PRs en GitHub"),
             icon: GitPullRequest,
-            badgeCount: counts.completedPRs,
+            badgeCount: (counts.running || 0) + (counts.completedPRs || 0),
             badgeVariant: "emerald",
             href: "/pull-requests",
           },
@@ -133,31 +141,38 @@ export default function WorkflowGuide({
     } else {
       // flowType === "contexts"
       if (!isValidator) {
-        // Standard User (3 Steps)
+        // Standard User (4 Steps with explicit waiting state)
         return [
           {
             key: "initial",
             number: 1,
-            title: t("workflow.step_ctx_initial", "1. Texto Inicial"),
-            description: t("workflow.step_ctx_initial_desc", "Directivas y reglas de arquitectura"),
+            title: t("workflow.step_ctx_initial", "Creación de Directivas"),
+            description: t("workflow.step_ctx_initial_desc", "Define el texto y reglas arquitectónicas iniciales"),
             icon: Boxes,
+          },
+          {
+            key: "waiting_ctx_val",
+            number: 2,
+            title: t("workflow.step_ctx_waiting_val", "En Espera de Validación"),
+            description: t("workflow.step_ctx_waiting_val_desc", "Directivas enviadas. Esperando revisión inicial del validador"),
+            icon: Clock,
             badgeCount: counts.pendingContexts,
             badgeVariant: "amber",
           },
           {
-            key: "plan",
-            number: 2,
-            title: t("workflow.step_ctx_view_plan", "2. Plan de Contexto (Gemini)"),
-            description: t("workflow.step_ctx_view_plan_desc", "Plan técnico estructurado por la IA"),
+            key: "waiting_ctx_plan",
+            number: 3,
+            title: t("workflow.step_ctx_waiting_plan", "Plan de Contexto (En Espera)"),
+            description: t("workflow.step_ctx_waiting_plan_desc", "Plan estructurado por IA. Esperando autorización para activar"),
             icon: Bot,
             badgeCount: counts.pendingCtxPlans,
             badgeVariant: "purple",
           },
           {
             key: "accepted",
-            number: 3,
-            title: t("workflow.step_ctx_accepted", "3. Aceptación y Uso"),
-            description: t("workflow.step_ctx_accepted_desc", "Contexto activo para inyectar en prompts"),
+            number: 4,
+            title: t("workflow.step_ctx_accepted", "Contextos Aceptados"),
+            description: t("workflow.step_ctx_accepted_desc", "Contexto activo para inyectar en prompts con caché Gemini"),
             icon: CheckCircle2,
             badgeCount: counts.acceptedContexts,
             badgeVariant: "emerald",
@@ -169,15 +184,15 @@ export default function WorkflowGuide({
           {
             key: "initial",
             number: 1,
-            title: t("workflow.step_ctx_initial", "1. Texto Inicial"),
-            description: t("workflow.step_ctx_initial_desc", "Directivas y reglas de arquitectura"),
+            title: t("workflow.step_ctx_initial", "Creación de Directivas"),
+            description: t("workflow.step_ctx_initial_desc", "Define el texto y reglas arquitectónicas iniciales"),
             icon: Boxes,
           },
           {
             key: "validate_text",
             number: 2,
-            title: t("workflow.step_ctx_val_text", "2. Validación de Directivas"),
-            description: t("workflow.step_ctx_val_text_desc", "Revisar y aprobar reglas iniciales"),
+            title: t("workflow.step_ctx_val_text", "Validación de Directivas"),
+            description: t("workflow.step_ctx_val_text_desc", "Revisar y aprobar directivas iniciales del contexto"),
             icon: CheckSquare,
             badgeCount: counts.pendingContexts,
             badgeVariant: "amber",
@@ -186,8 +201,8 @@ export default function WorkflowGuide({
           {
             key: "validate_plan",
             number: 3,
-            title: t("workflow.step_ctx_val_plan", "3. Validación de Plan"),
-            description: t("workflow.step_ctx_val_plan_desc", "Revisar y aprobar plan técnico"),
+            title: t("workflow.step_ctx_val_plan", "Validación de Plan Técnico"),
+            description: t("workflow.step_ctx_val_plan_desc", "Revisar y aprobar plan técnico estructurado por Gemini"),
             icon: FileCode2,
             badgeCount: counts.pendingCtxPlans,
             badgeVariant: "purple",
@@ -196,8 +211,8 @@ export default function WorkflowGuide({
           {
             key: "accepted",
             number: 4,
-            title: t("workflow.step_ctx_val_accepted", "4. Aceptación y Activación"),
-            description: t("workflow.step_ctx_val_accepted_desc", "Aprobado para producción y caché"),
+            title: t("workflow.step_ctx_val_accepted", "Aceptados y Activos"),
+            description: t("workflow.step_ctx_val_accepted_desc", "Aprobado para producción y caché en prompts del equipo"),
             icon: CheckCircle2,
             badgeCount: counts.acceptedContexts,
             badgeVariant: "emerald",
@@ -224,143 +239,150 @@ export default function WorkflowGuide({
       : t("workflow.contexts_workflow_user_subtitle", "Define tus directivas, supervisa el plan de arquitectura de Gemini y úsalo en tus prompts");
 
   return (
-    <nav
-      aria-label="Workflow Breadcrumb"
-      className="relative z-20 flex flex-wrap items-center justify-between gap-2 p-1.5 sm:p-2 bg-slate-900/90 border border-slate-800 rounded-xl shadow-md backdrop-blur-sm"
-    >
-      {/* Breadcrumb Steps List */}
-      <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
-        {/* Flow Tag */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950/80 border border-slate-800 text-[11px] font-semibold text-slate-300 shrink-0">
-          {isValidator ? (
-            <ShieldCheck className="w-3.5 h-3.5 text-purple-400" />
-          ) : (
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-          )}
-          <span className="hidden sm:inline font-medium">{title}</span>
-          <span
-            className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
-              isValidator
-                ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
-                : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-            }`}
-          >
-            {isValidator ? t("navbar.role_validator", "Validador") : t("navbar.role_user", "Usuario")}
-          </span>
-        </div>
+    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl backdrop-blur-sm relative overflow-hidden">
+      {/* Decorative Glow */}
+      <div className="absolute -left-20 -top-20 w-56 h-56 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
 
-        <span className="text-slate-600 select-none">/</span>
-
-        {/* Steps */}
-        {steps.map((step, idx) => {
-          const Icon = step.icon;
-          const isSelected = activeFilterStep === step.key;
-
-          const stepElement = (
-            <div
-              className={`relative group inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer select-none ${
-                isSelected
-                  ? "bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400 font-semibold"
-                  : "bg-slate-950/60 hover:bg-slate-800/80 text-slate-300 hover:text-white border border-slate-800/80"
-              }`}
-            >
+      {/* Top Header Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-800/80">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-indigo-400">
+            {isValidator ? (
+              <ShieldCheck className="w-5 h-5 text-purple-400" />
+            ) : (
+              <Sparkles className="w-5 h-5 text-indigo-400" />
+            )}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm sm:text-base font-bold text-white tracking-tight">
+                {title}
+              </h2>
               <span
-                className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold font-mono ${
-                  isSelected ? "bg-white/20 text-white" : "bg-slate-800 text-slate-300"
+                className={`text-[9px] px-2 py-0.5 rounded-md font-bold uppercase tracking-wider ${
+                  isValidator
+                    ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                    : "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
                 }`}
               >
-                {step.number}
+                {isValidator ? t("navbar.role_validator", "Validador") : t("navbar.role_user", "Usuario")}
               </span>
-              <Icon className="w-3.5 h-3.5 shrink-0" />
-              <span>{step.title.replace(/^\d+\.\s*/, "")}</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">
+              {subtitle}
+            </p>
+          </div>
+        </div>
 
-              {step.badgeCount !== undefined && step.badgeCount > 0 && (
-                <span
-                  className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
-                    isSelected
-                      ? "bg-white text-indigo-700"
-                      : step.badgeVariant === "amber"
-                      ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                      : step.badgeVariant === "purple"
-                      ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
-                      : step.badgeVariant === "emerald"
-                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                      : "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
-                  }`}
-                >
-                  {step.badgeCount}
-                </span>
-              )}
+        {/* Global Filter / Reset Button */}
+        {onFilterStep && (
+          <button
+            type="button"
+            onClick={() => onFilterStep("ALL")}
+            className={`text-xs px-3 py-1.5 rounded-xl font-medium transition-all shrink-0 flex items-center gap-1.5 border ${
+              !activeFilterStep || activeFilterStep === "ALL"
+                ? "bg-indigo-600/20 border-indigo-500/40 text-indigo-200 shadow-sm"
+                : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white hover:border-slate-700"
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>{t("workflow.filter_all", "Todas las etapas")}</span>
+          </button>
+        )}
+      </div>
 
-              {/* Floating Tooltip */}
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:flex flex-col items-center pointer-events-none z-50 transition-all duration-150 animate-fadeIn">
-                {/* Arrow pointing up */}
-                <div className="w-2.5 h-2.5 bg-slate-900 rotate-45 border-l border-t border-slate-700 -mb-1.5 z-10" />
-                <div className="bg-slate-900/95 border border-slate-700 text-slate-200 text-xs rounded-xl py-2.5 px-3.5 shadow-2xl w-64 max-w-xs text-left backdrop-blur-md">
-                  <div className="flex items-center gap-2 font-bold text-white mb-1.5">
-                    <span className="w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] shrink-0 font-mono">
-                      {step.number}
-                    </span>
-                    <span className="text-xs">{step.title}</span>
+      {/* Round Nodes Stepper Row */}
+      <div className="mt-5 relative">
+        {/* Continuous Connecting Line (Desktop) */}
+        <div className="hidden md:block absolute top-6 left-12 right-12 h-0.5 bg-slate-800 -z-0" />
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-2 relative z-10">
+          {steps.map((step) => {
+            const Icon = step.icon;
+            const isSelected = activeFilterStep === step.key;
+
+            return (
+              <div
+                key={step.key}
+                onClick={() => onFilterStep && onFilterStep(step.key)}
+                className={`flex flex-col items-center group cursor-pointer text-center p-2 rounded-xl transition-all duration-200 select-none ${
+                  isSelected
+                    ? "bg-slate-950/80 ring-1 ring-indigo-500/50 shadow-lg"
+                    : "hover:bg-slate-950/40"
+                }`}
+              >
+                {/* Round Circle Node with Badge */}
+                <div className="relative">
+                  <div
+                    className={`w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-md ${
+                      isSelected
+                        ? "bg-gradient-to-tr from-indigo-600 to-violet-600 text-white ring-4 ring-indigo-500/30 shadow-indigo-500/30 scale-105 border-2 border-white"
+                        : "bg-slate-950 text-slate-300 border-2 border-slate-700 group-hover:border-indigo-500/60 group-hover:text-white group-hover:bg-slate-900"
+                    }`}
+                  >
+                    <Icon className="w-5 h-5 sm:w-6 sm:h-6" />
                   </div>
-                  <p className="text-[11px] text-slate-300 leading-relaxed font-normal">
+
+                  {/* Top-Right Pending Badge Counter */}
+                  {step.badgeCount !== undefined && step.badgeCount > 0 && (
+                    <span
+                      title={`${step.badgeCount} elementos pendientes en este paso`}
+                      className={`absolute -top-1.5 -right-1.5 min-w-[22px] h-5 px-1.5 rounded-full flex items-center justify-center text-[10px] font-bold font-mono shadow-md border ${
+                        isSelected
+                          ? "bg-white text-indigo-700 border-indigo-200"
+                          : step.badgeVariant === "amber"
+                          ? "bg-amber-500 text-slate-950 border-amber-300 animate-pulse font-black"
+                          : step.badgeVariant === "purple"
+                          ? "bg-purple-500 text-white border-purple-300 font-bold"
+                          : step.badgeVariant === "emerald"
+                          ? "bg-emerald-500 text-slate-950 border-emerald-300 font-black"
+                          : "bg-indigo-600 text-white border-indigo-300 font-bold"
+                      }`}
+                    >
+                      {step.badgeCount}
+                    </span>
+                  )}
+                </div>
+
+                {/* Content Located Directly Below Node */}
+                <div className="mt-2.5 flex flex-col items-center w-full">
+                  {/* Step Label: PASO 1, PASO 2, etc. */}
+                  <span
+                    className={`text-[10px] font-extrabold uppercase tracking-widest px-2 py-0.5 rounded-md border ${
+                      isSelected
+                        ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/40"
+                        : "bg-slate-950 text-slate-400 border-slate-800 group-hover:text-slate-300"
+                    }`}
+                  >
+                    {t("workflow.step_label", { number: step.number }) || `PASO ${step.number}`}
+                  </span>
+
+                  {/* Step Title */}
+                  <h3
+                    className={`mt-1 text-xs sm:text-sm font-bold transition-colors line-clamp-1 ${
+                      isSelected ? "text-white" : "text-slate-300 group-hover:text-white"
+                    }`}
+                  >
+                    {step.title.replace(/^\d+\.\s*/, "")}
+                  </h3>
+
+                  {/* Step Description */}
+                  <p className="mt-1 text-[11px] text-slate-400 leading-snug line-clamp-2 max-w-[170px] sm:max-w-[200px]">
                     {step.description}
                   </p>
+
+                  {/* Element count note if available */}
                   {step.badgeCount !== undefined && step.badgeCount > 0 && (
-                    <div className="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between text-[10px] text-amber-300 font-medium">
-                      <span>{t("workflow.pending_badge", { count: step.badgeCount })}</span>
-                      <span className="text-slate-400">Clic para filtrar</span>
-                    </div>
-                  )}
-                  {step.href && (
-                    <div className="mt-1.5 pt-1 border-t border-slate-800/80 text-[10px] text-indigo-300 flex items-center justify-between">
-                      <span>Ir a la sección</span>
-                      <span>→</span>
-                    </div>
+                    <span className="mt-1 text-[10px] font-medium text-amber-400/90">
+                      {step.badgeCount} {t("workflow.pending_badge", { count: step.badgeCount })}
+                    </span>
                   )}
                 </div>
               </div>
-            </div>
-          );
-
-          return (
-            <React.Fragment key={step.key}>
-              {onFilterStep ? (
-                <button
-                  type="button"
-                  onClick={() => onFilterStep(step.key)}
-                  className="focus:outline-none"
-                >
-                  {stepElement}
-                </button>
-              ) : step.href ? (
-                <Link href={step.href}>{stepElement}</Link>
-              ) : (
-                stepElement
-              )}
-
-              {idx < steps.length - 1 && (
-                <ChevronRight className="w-3.5 h-3.5 text-slate-600 shrink-0 select-none" />
-              )}
-            </React.Fragment>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
-
-      {/* Right action: "Todas las etapas" pill */}
-      {onFilterStep && (
-        <button
-          type="button"
-          onClick={() => onFilterStep("ALL")}
-          className={`text-[11px] px-2.5 py-1 rounded-lg font-medium transition-all shrink-0 ${
-            !activeFilterStep || activeFilterStep === "ALL"
-              ? "bg-slate-800 text-white border border-slate-700 shadow-sm"
-              : "text-slate-400 hover:text-slate-200"
-          }`}
-        >
-          {t("workflow.filter_all", "Todas las etapas")}
-        </button>
-      )}
-    </nav>
+    </div>
   );
 }

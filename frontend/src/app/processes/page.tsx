@@ -17,24 +17,31 @@ import {
   ExternalLink,
   Layers,
   Server,
-  Square
+  Square,
+  Boxes,
+  Sparkles
 } from "lucide-react";
 
 interface ProcessItem {
   id: number;
+  process_type?: "prompt" | "context";
   project_id: number;
   project_name: string;
+  repo_name?: string;
   user_id: number;
   user_name: string;
   original_prompt: string;
   edited_prompt?: string;
   status: "PENDING" | "APPROVED" | "RUNNING" | "COMPLETED" | "FAILED" | "REJECTED" | "STOPPED";
+  raw_status?: string;
   stage?: string;
   duration_seconds: number;
   error_message?: string;
   branch_name?: string;
   pr_url?: string;
   pr_number?: number;
+  estimated_tokens?: number;
+  gemini_cache_name?: string;
   created_at: string;
   updated_at: string;
 }
@@ -47,8 +54,10 @@ export default function ProcessesPage() {
   const [processes, setProcesses] = useState<ProcessItem[]>([]);
   const [runningCount, setRunningCount] = useState<number>(0);
   const [pendingCount, setPendingCount] = useState<number>(0);
+  const [contextCount, setContextCount] = useState<number>(0);
+  const [promptCount, setPromptCount] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
-  const [filterTab, setFilterTab] = useState<"ALL" | "RUNNING" | "COMPLETED" | "FAILED">("ALL");
+  const [filterTab, setFilterTab] = useState<"ALL" | "RUNNING" | "PROMPTS" | "CONTEXTS" | "COMPLETED" | "FAILED">("ALL");
   const [selectedTask, setSelectedTask] = useState<ProcessItem | null>(null);
 
   useEffect(() => {
@@ -65,10 +74,18 @@ export default function ProcessesPage() {
     if (!user || user.role !== "admin") return;
     if (showLoading) setLoading(true);
     try {
-      const data = await apiRequest<{ running_count: number; pending_count: number; processes: ProcessItem[] }>("/processes/active");
+      const data = await apiRequest<{
+        running_count: number;
+        pending_count: number;
+        context_count?: number;
+        prompt_count?: number;
+        processes: ProcessItem[];
+      }>("/processes/active");
       setProcesses(data.processes);
       setRunningCount(data.running_count);
       setPendingCount(data.pending_count);
+      setContextCount(data.context_count ?? data.processes.filter(p => p.process_type === "context").length);
+      setPromptCount(data.prompt_count ?? data.processes.filter(p => p.process_type === "prompt").length);
     } catch (err) {
       console.error("Error cargando procesos:", err);
     } finally {
@@ -141,6 +158,8 @@ export default function ProcessesPage() {
 
   const filteredProcesses = processes.filter((p) => {
     if (filterTab === "RUNNING") return p.status === "RUNNING";
+    if (filterTab === "PROMPTS") return p.process_type === "prompt" || !p.process_type;
+    if (filterTab === "CONTEXTS") return p.process_type === "context";
     if (filterTab === "COMPLETED") return p.status === "COMPLETED";
     if (filterTab === "FAILED") return p.status === "FAILED";
     return true;
@@ -173,7 +192,7 @@ export default function ProcessesPage() {
       </div>
 
       {/* Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
             <Server className="w-6 h-6 text-indigo-400" />
@@ -191,6 +210,18 @@ export default function ProcessesPage() {
                 </span>
               )}
             </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+            <Boxes className="w-6 h-6 text-purple-400" />
+          </div>
+          <div>
+            <span className="text-xs text-slate-400 font-medium uppercase tracking-wider block">
+              Planes de Contextos
+            </span>
+            <span className="text-2xl font-black text-white mt-0.5 block">{contextCount}</span>
           </div>
         </div>
 
@@ -236,10 +267,12 @@ export default function ProcessesPage() {
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3">
         {[
           { id: "ALL", label: t("processes.tab_all", "Todos los Procesos") },
           { id: "RUNNING", label: `${t("processes.tab_running", "En Ejecución")} (${runningCount})` },
+          { id: "PROMPTS", label: `Sandboxes Docker (${promptCount})` },
+          { id: "CONTEXTS", label: `Planes de Contextos (${contextCount})` },
           { id: "COMPLETED", label: t("processes.tab_completed", "Completados") },
           { id: "FAILED", label: t("processes.tab_failed", "Con Error") },
         ].map((tab) => (
@@ -275,13 +308,16 @@ export default function ProcessesPage() {
             const isCompleted = proc.status === "COMPLETED";
             const isFailed = proc.status === "FAILED";
             const isStopped = proc.status === "STOPPED";
+            const isContext = proc.process_type === "context";
 
             return (
               <div
-                key={proc.id}
+                key={`${proc.process_type || "p"}_${proc.id}`}
                 className={`bg-slate-900 border rounded-2xl p-5 shadow-xl transition-all ${
                   isRunning
                     ? "border-indigo-500/40 ring-1 ring-indigo-500/20"
+                    : isContext
+                    ? "border-purple-500/30 bg-purple-950/5"
                     : isFailed
                     ? "border-rose-500/30"
                     : isStopped
@@ -295,12 +331,34 @@ export default function ProcessesPage() {
                       <span className="font-mono text-xs px-2.5 py-0.5 rounded-md bg-slate-950 text-indigo-400 font-bold border border-indigo-500/20">
                         #{proc.id}
                       </span>
+                      {isContext ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          <Boxes className="w-3 h-3 text-purple-400" />
+                          <span>Contexto Gemini</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                          <Server className="w-3 h-3 text-indigo-400" />
+                          <span>Docker Sandbox</span>
+                        </span>
+                      )}
                       <h3 className="font-bold text-white text-base">
                         {proc.project_name}
                       </h3>
                       <span className="text-xs text-slate-400">
                         {t("common.by", "por")} <strong className="text-slate-300">{proc.user_name}</strong>
                       </span>
+                      {proc.estimated_tokens !== undefined && proc.estimated_tokens > 0 && (
+                        <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800">
+                          ~{proc.estimated_tokens.toLocaleString()} tokens
+                        </span>
+                      )}
+                      {proc.gemini_cache_name && (
+                        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-medium">
+                          <Sparkles className="w-3 h-3" />
+                          <span>Caché Gemini Activo</span>
+                        </span>
+                      )}
                     </div>
 
                     <p className="text-xs text-slate-300 font-mono line-clamp-1 max-w-2xl mt-1">

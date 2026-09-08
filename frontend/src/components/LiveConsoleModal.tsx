@@ -80,6 +80,20 @@ export default function LiveConsoleModal({ task, onClose }: LiveConsoleModalProp
       setLogs([]);
     }
 
+    // Special handling for Context executions
+    if ((task as any).process_type === "context") {
+      apiRequest<any>(`/processes/context/${task.id}/details`)
+        .then((data) => {
+          setStatus(data.status);
+          setStage(data.execution_stage);
+          if (data.logs) setLogs(data.logs.split("\n"));
+        })
+        .catch((err) => {
+          setLogs([`Error cargando detalles del contexto: ${err.message}`]);
+        });
+      return;
+    }
+
     // Determine WebSocket URL
     const isHttps = typeof window !== "undefined" && window.location.protocol === "https:";
     const wsProto = isHttps ? "wss:" : "ws:";
