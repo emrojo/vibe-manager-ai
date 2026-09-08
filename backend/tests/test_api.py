@@ -626,11 +626,11 @@ async def test_alembic_migration_schema():
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
     assert len(heads) == 1
-    assert heads[0] == "0001_repo_val"
+    assert heads[0] == "0002_plan_fb"
 
     # Check migration revision head details
     head_revision = script.get_revision(heads[0])
-    assert "create repo_validators and task links" in head_revision.doc
+    assert "add plan_feedback to prompt_tasks" in head_revision.doc
 
 
 @pytest.mark.asyncio
@@ -709,3 +709,91 @@ async def test_production_security_hardening():
         # 7. RBAC: Normal user denied access to /processes/{id}/details
         p_res = await ac.get("/api/processes/1/details", headers=user_headers)
         assert p_res.status_code == 403, "Non-admin must be forbidden from process details"
+
+@pytest.mark.asyncio
+async def test_plan_modification_workflow():
+    """Verify that a validator can modify an implementation plan and provide adjustment prompts for Gemini."""
+    from sqlalchemy import select
+    from app.models.prompt_task import PromptTask
+    from app.services.run_task import call_gemini_plan
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        admin_reg = await ac.post("/api/auth/register", json={
+            "email": "adminmod@vibemanager.ai",
+            "name": "Admin Mod",
+            "password": "Password123!"
+        })
+        if admin_reg.status_code == 200:
+            admin_token = admin_reg.json()["access_token"]
+        else:
+            admin_login = await ac.post("/api/auth/login", json={
+                "email": "adminmod@vibemanager.ai",
+                "password": "Password123!"
+            })
+            admin_token = admin_login.json()["access_token"]
+
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+        # Create or get project
+        proj_res = await ac.get("/api/projects", headers=admin_headers)
+        if proj_res.status_code == 200 and len(proj_res.json()) > 0:
+            proj_id = proj_res.json()[0]["id"]
+        else:
+            p_res = await ac.post("/api/projects", json={
+                "name": "Proyecto Mod",
+                "repo_url": "https://github.com/vibe/mod-repo",
+                "default_branch": "main"
+            }, headers=admin_headers)
+            proj_id = p_res.json()["id"]
+
+        prompt_res = await ac.post("/api/prompts", json={
+            "project_id": proj_id,
+            "prompt": "Implementar módulo de exportación de informes en PDF"
+        }, headers=admin_headers)
+        task_id = prompt_res.json()["id"]
+
+        # Simulate task in PLAN_PENDING status with an initial plan
+        async with TestingSessionLocal() as session:
+            q = await session.execute(select(PromptTask).where(PromptTask.id == task_id))
+            task_row = q.scalars().first()
+            task_row.status = "PLAN_PENDING"
+            task_row.plan_content = "# Plan Inicial\n- Crear endpoint /api/export/pdf\n- Modificar schema en PostgreSQL"
+            await session.commit()
+
+        # 1. Modify the plan via validator endpoint
+        modify_res = await ac.post(f"/api/validation/tasks/{task_id}/modify-plan", json={
+            "edited_plan": "# Plan Inicial (Corregido)\n- Crear endpoint /api/export/pdf\n- Usar almacenamiento temporal sin alterar PostgreSQL",
+            "modification_prompt": "Por favor no modifiques la base de datos PostgreSQL; genera el PDF en memoria y streamed al cliente."
+        }, headers=admin_headers)
+
+        assert modify_res.status_code == 200, f"Error modifying plan: {modify_res.text}"
+        data = modify_res.json()
+        assert data["plan_feedback"] == "Por favor no modifiques la base de datos PostgreSQL; genera el PDF en memoria y streamed al cliente."
+        assert "sin alterar PostgreSQL" in data["plan_content"]
+        assert data["status"] in ["APPROVED", "RUNNING", "PLAN_PENDING"]
+
+        # 2. Verify invalid status check: attempting to modify a task not in PLAN_PENDING fails
+        async with TestingSessionLocal() as session:
+            q = await session.execute(select(PromptTask).where(PromptTask.id == task_id))
+            task_row = q.scalars().first()
+            task_row.status = "COMPLETED"
+            await session.commit()
+
+        bad_status_res = await ac.post(f"/api/validation/tasks/{task_id}/modify-plan", json={
+            "edited_plan": "Nuevo plan",
+            "modification_prompt": "Ajuste adicional"
+        }, headers=admin_headers)
+        assert bad_status_res.status_code == 400
+        assert "Solo se pueden modificar tareas en estado 'PLAN_PENDING'" in bad_status_res.json()["detail"]
+
+        # 3. Verify runner call_gemini_plan handles previous_plan and modification_feedback
+        plan_out = call_gemini_plan(
+            prompt="Implementar exportación PDF",
+            project_name="test-project",
+            api_key="", # automated fallback template
+            previous_plan="# Plan V1",
+            modification_feedback="Usar almacenamiento temporal"
+        )
+        assert "test-project" in plan_out["summary"]
+        assert "Usar almacenamiento temporal" in plan_out["plan_markdown"]
+        assert "Ajustes del validador" in plan_out["plan_markdown"]

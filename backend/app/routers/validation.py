@@ -9,7 +9,7 @@ from app.auth import get_current_user, require_project_validator_or_admin
 from app.database import get_db
 from app.models.prompt_task import PromptTask
 from app.models.user import User
-from app.schemas.prompt_task import PromptTaskRead, PromptTaskEdit, PromptTaskReject, PlanReject
+from app.schemas.prompt_task import PromptTaskRead, PromptTaskEdit, PromptTaskReject, PlanReject, PlanModify
 from app.routers.prompts import map_prompt_task
 from app.services.queue_worker import enqueue_prompt_task
 
@@ -182,6 +182,40 @@ async def reject_task_plan(
 
     await db.commit()
     await db.refresh(task)
+
+    return map_prompt_task(task)
+
+@router.post("/tasks/{task_id}/modify-plan", response_model=PromptTaskRead)
+async def modify_task_plan(
+    task_id: int,
+    payload: PlanModify,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    task = await get_task_for_validation(task_id, current_user, db)
+
+    if task.status != "PLAN_PENDING":
+        raise HTTPException(status_code=400, detail="Solo se pueden modificar tareas en estado 'PLAN_PENDING'")
+
+    # Save edited plan if provided
+    if payload.edited_plan is not None and payload.edited_plan.strip():
+        task.plan_content = payload.edited_plan.strip()
+
+    # Save modification feedback/prompt for Gemini
+    task.plan_feedback = payload.modification_prompt.strip()
+
+    # Reset validation status so it re-generates the plan
+    task.status = "APPROVED"
+    task.plan_validated_by_id = current_user.id
+    task.plan_validated_at = None
+    task.plan_rejection_reason = None
+    task.error_message = None
+    task.execution_stage = "Plan modificado - Encolando regeneración con Gemini..."
+
+    await db.commit()
+    await db.refresh(task)
+
+    enqueue_prompt_task(task.id)
 
     return map_prompt_task(task)
 

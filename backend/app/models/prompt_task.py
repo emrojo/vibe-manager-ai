@@ -40,6 +40,7 @@ class PromptTask(Base):
     plan_validated_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     plan_validated_at = Column(DateTime, nullable=True)
     plan_rejection_reason = Column(Text, nullable=True)
+    plan_feedback = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow, nullable=False)

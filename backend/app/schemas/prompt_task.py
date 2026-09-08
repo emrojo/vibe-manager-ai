@@ -40,6 +40,15 @@ class PromptTaskReject(BaseModel):
 class PlanReject(BaseModel):
     rejection_reason: str
 
+class PlanModify(BaseModel):
+    edited_plan: Optional[str] = Field(None, max_length=50000)
+    modification_prompt: str = Field(..., min_length=5, max_length=4000)
+
+    @field_validator("modification_prompt")
+    @classmethod
+    def validate_modification_prompt(cls, v: str) -> str:
+        return sanitize_prompt_text(v)
+
 class PromptTaskRead(BaseModel):
     id: int
     project_id: int
@@ -66,6 +75,7 @@ class PromptTaskRead(BaseModel):
     execution_logs: Optional[str] = None
     error_message: Optional[str] = None
     plan_content: Optional[str] = None
+    plan_feedback: Optional[str] = None
     plan_validated_by_id: Optional[int] = None
     plan_validator_name: Optional[str] = None
     plan_validated_at: Optional[datetime.datetime] = None

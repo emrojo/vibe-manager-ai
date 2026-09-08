@@ -53,6 +53,7 @@ def map_prompt_task(task: PromptTask) -> PromptTaskRead:
         execution_logs=task.execution_logs,
         error_message=error_msg,
         plan_content=task.plan_content,
+        plan_feedback=task.plan_feedback,
         plan_validated_by_id=task.plan_validated_by_id,
         plan_validator_name=getattr(task, "plan_validator", None).name if getattr(task, "plan_validator", None) else None,
         plan_validated_at=task.plan_validated_at,

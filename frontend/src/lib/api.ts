@@ -85,6 +85,7 @@ export interface PromptTask {
   execution_logs?: string;
   error_message?: string;
   plan_content?: string;
+  plan_feedback?: string;
   plan_validated_by_id?: number;
   plan_validator_name?: string;
   plan_validated_at?: string;
@@ -177,4 +178,14 @@ export async function apiRequest<T>(
   }
 
   return response.json();
+}
+
+export async function modifyTaskPlan(
+  taskId: number,
+  payload: { edited_plan?: string; modification_prompt: string }
+): Promise<PromptTask> {
+  return apiRequest<PromptTask>(`/validation/tasks/${taskId}/modify-plan`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }

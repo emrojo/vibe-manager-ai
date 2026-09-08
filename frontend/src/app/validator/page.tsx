@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { apiRequest, PromptTask, RepoValidator, RepoValidatorCreate } from "@/lib/api";
+import { apiRequest, modifyTaskPlan, PromptTask, RepoValidator, RepoValidatorCreate } from "@/lib/api";
 import { 
   CheckSquare, 
   CheckCircle, 
@@ -28,7 +28,9 @@ import {
   Trash2,
   Key,
   GitBranch,
-  ShieldCheck
+  ShieldCheck,
+  Sparkles,
+  FileEdit
 } from "lucide-react";
 import LiveConsoleModal from "@/components/LiveConsoleModal";
 
@@ -174,6 +176,12 @@ export default function ValidatorPage() {
 
   const [rejectingPlanTaskId, setRejectingPlanTaskId] = useState<number | null>(null);
   const [planRejectionReason, setPlanRejectionReason] = useState<string>("");
+
+  // Modifying plan modal / view state
+  const [modifyingPlanTask, setModifyingPlanTask] = useState<PromptTask | null>(null);
+  const [editedPlanText, setEditedPlanText] = useState<string>("");
+  const [planModificationPrompt, setPlanModificationPrompt] = useState<string>("");
+  const [submittingPlanModification, setSubmittingPlanModification] = useState(false);
 
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -424,6 +432,50 @@ export default function ValidatorPage() {
       setFeedback({ type: "error", text: err.message || "Error al rechazar plan" });
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleOpenModifyPlan = (task: PromptTask) => {
+    setModifyingPlanTask(task);
+    setEditedPlanText(task.plan_content || "");
+    setPlanModificationPrompt("");
+  };
+
+  const handleCloseModifyPlan = () => {
+    setModifyingPlanTask(null);
+    setEditedPlanText("");
+    setPlanModificationPrompt("");
+  };
+
+  const handleSubmitModifyPlan = async () => {
+    if (!modifyingPlanTask) return;
+    if (!planModificationPrompt.trim()) {
+      setFeedback({
+        type: "error",
+        text: "Por favor incluye un prompt con las instrucciones de modificación para Gemini.",
+      });
+      return;
+    }
+
+    setSubmittingPlanModification(true);
+    try {
+      await modifyTaskPlan(modifyingPlanTask.id, {
+        edited_plan: editedPlanText.trim(),
+        modification_prompt: planModificationPrompt.trim(),
+      });
+      setFeedback({
+        type: "success",
+        text: `Plan #${modifyingPlanTask.id} enviado para re-elaboración con Gemini.`,
+      });
+      handleCloseModifyPlan();
+      await loadTasks();
+    } catch (err: any) {
+      setFeedback({
+        type: "error",
+        text: err.message || "Error al solicitar modificación del plan",
+      });
+    } finally {
+      setSubmittingPlanModification(false);
     }
   };
 
@@ -933,9 +985,22 @@ export default function ValidatorPage() {
                       </div>
                     )}
 
+                    {/* Previous Modification Feedback Info */}
+                    {task.plan_feedback && (
+                      <div className="p-3.5 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-xs text-indigo-200 flex items-start gap-2.5">
+                        <Sparkles className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="block text-indigo-300 font-semibold mb-0.5">
+                            Instrucciones de la última modificación solicitada:
+                          </strong>
+                          <span className="whitespace-pre-wrap text-slate-300 leading-relaxed">{task.plan_feedback}</span>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Actions for Plan */}
                     {isPlanPending ? (
-                      <div className="flex items-center justify-end gap-3 pt-2">
+                      <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
                         <button
                           onClick={() => setRejectingPlanTaskId(task.id)}
                           disabled={isLoadingThis}
@@ -943,6 +1008,15 @@ export default function ValidatorPage() {
                         >
                           <XCircle className="w-3.5 h-3.5" />
                           <span>Rechazar Plan</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenModifyPlan(task)}
+                          disabled={isLoadingThis}
+                          className="px-4 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-white text-xs font-semibold border border-indigo-500/30 hover:border-indigo-500/50 flex items-center gap-1.5 transition-all shadow-md shadow-indigo-950/40"
+                        >
+                          <FileEdit className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Modificar Plan</span>
                         </button>
 
                         <button
@@ -1306,6 +1380,126 @@ export default function ValidatorPage() {
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-medium disabled:opacity-50"
               >
                 Confirmar Rechazo del Plan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modify Plan Modal */}
+      {modifyingPlanTask && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                  <FileEdit className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>Modificar Plan de Implementación #{modifyingPlanTask.id}</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {modifyingPlanTask.project_name || `Proyecto #${modifyingPlanTask.project_id}`}
+                    {modifyingPlanTask.repo_url && ` • ${modifyingPlanTask.repo_url.replace("https://github.com/", "")}`}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleCloseModifyPlan}
+                disabled={submittingPlanModification}
+                className="text-slate-400 hover:text-slate-200 p-2 rounded-xl hover:bg-slate-800 transition-colors"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1 custom-scrollbar">
+              {/* Context Prompt Box */}
+              <div className="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800/80 text-xs">
+                <span className="font-semibold text-amber-400 block mb-1 flex items-center gap-1.5">
+                  <CheckSquare className="w-3.5 h-3.5" />
+                  Prompt Validado que originó este plan:
+                </span>
+                <p className="text-slate-300 font-mono whitespace-pre-wrap leading-relaxed">
+                  {modifyingPlanTask.edited_prompt || modifyingPlanTask.original_prompt}
+                </p>
+              </div>
+
+              {/* 1. Plan Text Editor */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                    <ListOrdered className="w-4 h-4 text-indigo-400" />
+                    <span>Texto del Plan Técnico (Editable directamente)</span>
+                  </label>
+                  <span className="text-[11px] text-slate-500 font-mono">
+                    {editedPlanText.length} caracteres
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Puedes retocar o corregir directamente cualquier sección del plan antes de solicitar la re-generación a Gemini.
+                </p>
+                <textarea
+                  rows={10}
+                  value={editedPlanText}
+                  onChange={(e) => setEditedPlanText(e.target.value)}
+                  placeholder="# Plan de Implementación..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-xs text-slate-200 font-mono leading-relaxed focus:outline-none focus:border-indigo-500 transition-all focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* 2. Modification Prompt for Gemini */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-indigo-400" />
+                  <span>Instrucciones / Prompt de Modificación para Gemini</span>
+                  <span className="text-rose-400">*</span>
+                </label>
+                <p className="text-xs text-slate-400">
+                  Describe detalladamente los cambios requeridos. Gemini recibirá el plan editado junto con estas instrucciones para sintetizar una nueva versión del plan.
+                </p>
+                <textarea
+                  rows={3}
+                  required
+                  value={planModificationPrompt}
+                  onChange={(e) => setPlanModificationPrompt(e.target.value)}
+                  placeholder="Ej: No modifiques el esquema de la base de datos; utiliza almacenamiento local. Añade tests unitarios para los nuevos endpoints y asegura compatibilidad hacia atrás."
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-all focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleCloseModifyPlan}
+                disabled={submittingPlanModification}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitModifyPlan}
+                disabled={submittingPlanModification || !planModificationPrompt.trim()}
+                className="px-5 py-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-indigo-600/25 flex items-center gap-2 transition-all disabled:opacity-50"
+              >
+                {submittingPlanModification ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Enviando a Gemini...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Enviar a Gemini y Regenerar Plan</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

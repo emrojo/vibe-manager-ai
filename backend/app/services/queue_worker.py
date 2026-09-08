@@ -40,11 +40,15 @@ async def process_prompt_task(task_id: int):
             
         initial_status = task.status
         plan_content_cached = task.plan_content
+        plan_feedback_cached = task.plan_feedback
         mode = "EXECUTE" if initial_status == "PLAN_APPROVED" else "PLAN"
 
         task.status = "RUNNING"
         if mode == "PLAN":
-            task.execution_stage = "Elaborando plan técnico en sandbox..."
+            if plan_feedback_cached:
+                task.execution_stage = "Re-elaborando plan técnico con Gemini según indicaciones del validador..."
+            else:
+                task.execution_stage = "Elaborando plan técnico en sandbox..."
         else:
             task.execution_stage = "Aplicando cambios y creando Pull Request en sandbox..."
         task.error_message = None
@@ -96,7 +100,8 @@ async def process_prompt_task(task_id: int):
             gemini_api_key=settings.GEMINI_API_KEY,
             gemini_model=settings.GEMINI_MODEL,
             mode=mode,
-            plan_content=plan_content_cached
+            plan_content=plan_content_cached,
+            plan_feedback=plan_feedback_cached
         )
     except Exception as e:
         logger.exception(f"[Worker] Excepción no controlada ejecutando tarea #{task_id}: {e}")
