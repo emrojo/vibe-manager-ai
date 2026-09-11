@@ -19,7 +19,8 @@ import {
   Sun,
   Moon,
   Palette,
-  Globe
+  Globe,
+  Zap
 } from "lucide-react";
 
 export default function Navbar() {
@@ -35,6 +36,7 @@ export default function Navbar() {
 
   const navLinks = [
     { href: "/dashboard", label: t("navbar.my_prompts"), icon: Layers },
+    { href: "/dashboard-lite", label: t("navbar.quick_mode"), icon: Zap },
     { href: "/contexts", label: t("navbar.contexts"), icon: Boxes },
     ...(isAdmin ? [{ href: "/processes", label: t("navbar.processes"), icon: Activity }] : []),
     { href: "/pull-requests", label: t("navbar.my_pull_requests"), icon: GitPullRequest },
